@@ -60,6 +60,14 @@ app.get('/', (req, res) => {
   res.send('Luxe Apartment Booking API is running.');
 });
 
+app.get('/api', (req, res) => {
+  res.send('Luxe Apartment Booking API is running (via /api).');
+});
+
+app.get('/api/', (req, res) => {
+  res.send('Luxe Apartment Booking API is running (via /api/).');
+});
+
 // Paystack Payment Initialization Example
 app.post('/api/payments/initialize', async (req, res) => {
   const { email, amount } = req.body;
