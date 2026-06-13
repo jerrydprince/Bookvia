@@ -57,6 +57,7 @@ const AdminSettings = () => {
     invoice_footer_notes: 'Thank you for your business. Payment is due within 14 days.',
     company_vat_id: '',
     paystack_public: '',
+    paystack_secret: '',
     stripe_public: '',
     plugins_enabled: '[]',
     contact_email: '',
@@ -1282,6 +1283,22 @@ const AdminSettings = () => {
                         </div>
                         
                         <div className="space-y-1.5">
+                          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Paystack Secret Key</label>
+                          <div className="relative">
+                            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-500">
+                              <Key size={14} />
+                            </span>
+                            <input 
+                              type="password" 
+                              value={settings.paystack_secret || ''} 
+                              onChange={e => setSettings({...settings, paystack_secret: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 pl-10 pr-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                              placeholder="sk_live_..." 
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1.5 md:col-span-2">
                           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Stripe Public Key</label>
                           <div className="relative">
                             <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-500">

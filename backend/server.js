@@ -94,12 +94,34 @@ app.post('/api/payments/initialize', async (req, res) => {
 
 // Verify Paystack Transaction
 app.get('/api/payments/verify/:reference', async (req, res) => {
-  const { reference } = req.params;
+  const reference = req.params.reference;
+  
+  let apiKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!apiKey) {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'paystack_secret')
+        .single();
+      
+      if (!error && data) {
+        apiKey = data.setting_value;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch paystack_secret from system_settings table: ", e.message);
+    }
+  }
+
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Paystack Secret Key is not configured in process.env or system_settings.' });
+  }
+
   try {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
+        Authorization: `Bearer ${apiKey}`
       }
     });
 
