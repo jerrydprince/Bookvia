@@ -300,16 +300,7 @@ const GuestFinancials = () => {
     }
   };
 
-  // Paystack Configuration
-  const paystackConfig = React.useMemo(() => ({
-    reference: `DEP-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-    email: guestRecord?.email || user?.email || '',
-    amount: Math.round(Number(addFundsAmount || 0) * 100), // in kobo
-    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
-    currency: 'NGN'
-  }), [guestRecord?.email, user?.email, addFundsAmount, paystackPublicKey]);
-
-  const initializePayment = usePaystackPayment(paystackConfig);
+  const initializePayment = usePaystackPayment({});
 
   const executeWalletDeposit = async (amount, method, transactionRef, methodLabel, refLabel) => {
     const currentBalance = Number(guestRecord.wallet_balance || 0);
@@ -443,7 +434,18 @@ const GuestFinancials = () => {
       if (!import.meta.env.VITE_PAYSTACK_PUBLIC_KEY && !paystackPublicKey) {
         return toast.error("Payment gateway is not configured.");
       }
-      initializePayment({ onSuccess, onClose });
+      const depRef = `DEP-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      initializePayment({
+        config: {
+          reference: depRef,
+          email: guestRecord?.email || user?.email || '',
+          amount: Math.round(amount * 100), // in kobo
+          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
+          currency: 'NGN'
+        },
+        onSuccess,
+        onClose
+      });
       return;
     }
 

@@ -115,28 +115,19 @@ const GuestDashboard = () => {
     }
   };
 
-  // Paystack Configuration for Requested Services
-  const paystackConfig = React.useMemo(() => {
-    if (!selectedPaymentRequest) return { email: '', amount: 0, publicKey: '' };
-    return {
-      email: user?.email || '',
-      amount: Number(selectedPaymentRequest.total_price_ngn) * 100, // in kobo
-      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_eaffa6e288470d49a1846f37feabe3a3eb3f30d8',
-      text: "Pay Service Request",
-      onSuccess: (reference) => handleServicePaymentSuccess(reference),
-      onClose: () => {
-        setSelectedPaymentRequest(null);
-        toast.error('Payment cancelled by guest.');
-      }
-    };
-  }, [selectedPaymentRequest, user]);
 
-  const initializePaystack = usePaystackPayment(paystackConfig);
+  const initializePaystack = usePaystackPayment({});
 
   useEffect(() => {
     if (selectedPaymentRequest) {
       // Trigger Paystack payment popup
       initializePaystack({
+        config: {
+          email: user?.email || '',
+          amount: Math.round(Number(selectedPaymentRequest.total_price_ngn) * 100), // in kobo
+          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_eaffa6e288470d49a1846f37feabe3a3eb3f30d8',
+          currency: 'NGN'
+        },
         onSuccess: (reference) => handleServicePaymentSuccess(reference),
         onClose: () => {
           setSelectedPaymentRequest(null);
@@ -144,7 +135,7 @@ const GuestDashboard = () => {
         }
       });
     }
-  }, [selectedPaymentRequest]);
+  }, [selectedPaymentRequest, user]);
 
   const handleServicePaymentSuccess = async (reference) => {
     if (!selectedPaymentRequest) return;

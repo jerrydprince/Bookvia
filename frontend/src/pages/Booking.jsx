@@ -521,14 +521,6 @@ const BookingEngine = () => {
   const [shouldTriggerPaystack, setShouldTriggerPaystack] = useState(false);
   const [isVerifyingRedirect, setIsVerifyingRedirect] = useState(false);
 
-  // Paystack Configuration
-  const paystackConfig = React.useMemo(() => ({
-    reference: bookingRef || (new Date()).getTime().toString(),
-    email: guestForm.email || 'guest@example.com',
-    amount: Math.round(payOnlineAmount * 100), // Amount is in kobo
-    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
-    currency: 'NGN'
-  }), [guestForm.email, payOnlineAmount, paystackPublicKey, bookingRef]);
 
   const pendingBookingRef = useRef(null);
   const [bookingErrorMsg, setBookingErrorMsg] = useState(null);
@@ -600,7 +592,7 @@ const BookingEngine = () => {
     setIsProcessing(false);
   };
 
-  const initializePayment = usePaystackPayment(paystackConfig);
+  const initializePayment = usePaystackPayment({});
 
   useEffect(() => {
     if (shouldTriggerPaystack && bookingRef) {
