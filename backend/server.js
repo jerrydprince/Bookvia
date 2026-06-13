@@ -92,6 +92,26 @@ app.post('/api/payments/initialize', async (req, res) => {
   }
 });
 
+// Verify Paystack Transaction
+app.get('/api/payments/verify/:reference', async (req, res) => {
+  const { reference } = req.params;
+  try {
+    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
+      }
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("Verification error:", error);
+    res.status(500).json({ error: 'Payment verification failed' });
+  }
+});
+
+
 // Resend Email Integration
 app.post('/api/email/send', async (req, res) => {
   const { to, subject, html } = req.body;

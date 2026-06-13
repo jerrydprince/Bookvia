@@ -514,14 +514,18 @@ const BookingEngine = () => {
     return total;
   }, [calculateTotal(), bookingRules.payment_rule, bookingRules.deposit_percentage]);
 
+  const [bookingRef, setBookingRef] = useState(null);
+  const [shouldTriggerPaystack, setShouldTriggerPaystack] = useState(false);
+  const [isVerifyingRedirect, setIsVerifyingRedirect] = useState(false);
+
   // Paystack Configuration
   const paystackConfig = React.useMemo(() => ({
-    reference: (new Date()).getTime().toString(),
+    reference: bookingRef || (new Date()).getTime().toString(),
     email: guestForm.email || 'guest@example.com',
     amount: Math.round(payOnlineAmount * 100), // Amount is in kobo
     publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
     currency: 'NGN'
-  }), [guestForm.email, payOnlineAmount, paystackPublicKey]);
+  }), [guestForm.email, payOnlineAmount, paystackPublicKey, bookingRef]);
 
   const pendingBookingRef = useRef(null);
   const [bookingErrorMsg, setBookingErrorMsg] = useState(null);
@@ -531,7 +535,7 @@ const BookingEngine = () => {
     setBookingErrorMsg(null);
     const toastId = toast.loading('Finalizing your payment...');
     try {
-      const pRef = pendingBookingRef.current;
+      const pRef = pendingBookingRef.current || bookingRef;
       if (!pRef) {
         toast.dismiss(toastId);
         setBookingErrorMsg("Booking reference was lost. Please contact support.");
@@ -596,6 +600,134 @@ const BookingEngine = () => {
   };
 
   const initializePayment = usePaystackPayment(paystackConfig);
+
+  useEffect(() => {
+    if (shouldTriggerPaystack && bookingRef) {
+      setShouldTriggerPaystack(false);
+      initializePayment({
+        config: {
+          reference: bookingRef,
+          email: guestForm.email || 'guest@example.com',
+          amount: Math.round(payOnlineAmount * 100), // Amount is in kobo
+          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
+          currency: 'NGN',
+          callback_url: window.location.origin + '/booking'
+        },
+        onSuccess,
+        onClose
+      });
+    }
+  }, [shouldTriggerPaystack, bookingRef, guestForm.email, payOnlineAmount, paystackPublicKey]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paystackRef = params.get('reference') || params.get('trxref');
+    if (paystackRef && paystackRef.startsWith('WEB-')) {
+      handleRedirectCallback(paystackRef);
+    }
+  }, []);
+
+  const handleRedirectCallback = async (refCode) => {
+    setIsVerifyingRedirect(true);
+    const toastId = toast.loading(`Verifying transaction: ${refCode}...`);
+    try {
+      // 1. First, check if the booking is already confirmed in the database
+      const { data: existingBooking, error: checkErr } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('booking_reference', refCode)
+        .maybeSingle();
+
+      if (checkErr) throw checkErr;
+      
+      if (!existingBooking) {
+        toast.error("Booking record not found.", { id: toastId });
+        setIsVerifyingRedirect(false);
+        return;
+      }
+
+      if (existingBooking.payment_status === 'paid' || existingBooking.payment_status === 'partial') {
+        toast.success("Payment verified!", { id: toastId });
+        navigate(`/payment-success?type=booking&ref=${refCode}&amount=${existingBooking.amount_paid_ngn}`);
+        return;
+      }
+
+      // 2. Call our secure backend verify endpoint to check with Paystack
+      const verifyRes = await fetch(`/api/payments/verify/${encodeURIComponent(refCode)}`);
+      if (!verifyRes.ok) {
+        throw new Error(`Server verification endpoint returned status ${verifyRes.status}`);
+      }
+
+      const verifyData = await verifyRes.json();
+      
+      if (verifyData?.status === true && (verifyData?.data?.status === 'success' || verifyData?.data?.status === 'reversed')) {
+        const amountPaidKobo = verifyData.data.amount;
+        const amountPaidNgn = amountPaidKobo / 100;
+
+        const isPartial = bookingRules.payment_rule === 'partial_deposit';
+        const statusPayment = isPartial ? 'partial' : 'paid';
+
+        // A. Update booking details
+        const { error: bookingUpdateErr } = await supabase
+          .from('bookings')
+          .update({
+            status: 'pending',
+            payment_status: statusPayment,
+            amount_paid_ngn: amountPaidNgn,
+          })
+          .eq('booking_reference', refCode);
+
+        if (bookingUpdateErr) throw bookingUpdateErr;
+
+        // B. Insert payment record
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert([{
+            booking_id: existingBooking.id,
+            amount: amountPaidNgn,
+            method: 'paystack',
+            transaction_ref: refCode,
+            status: 'completed'
+          }]);
+        if (paymentError) console.error("Payment insert error:", paymentError);
+
+        // C. Update invoice status
+        const { error: invoiceError } = await supabase
+          .from('invoices')
+          .update({
+            amount_paid: amountPaidNgn,
+            status: statusPayment
+          })
+          .eq('booking_id', existingBooking.id);
+        if (invoiceError) console.error("Invoice sync error:", invoiceError);
+
+        // D. Trigger automation alerts
+        try {
+          const { data: updatedBooking } = await supabase
+            .from('bookings')
+            .select('*, profiles(*)')
+            .eq('booking_reference', refCode)
+            .single();
+          if (updatedBooking) {
+            triggerAutomationRules('booking_created', updatedBooking);
+          }
+        } catch (autoErr) {
+          console.warn("Failed to dispatch automation logs on redirect callback:", autoErr);
+        }
+
+        toast.success(`Booking Confirmed! Ref: ${refCode}`, { id: toastId });
+        navigate(`/payment-success?type=booking&ref=${refCode}&amount=${amountPaidNgn}`);
+      } else {
+        toast.error(`Transaction verification failed. Status: ${verifyData?.data?.status || 'unknown'}`, { id: toastId, duration: 8000 });
+      }
+    } catch (err) {
+      console.error("Error finalizing redirect payment:", err);
+      toast.error(`Error verifying payment: ${err.message}`, { id: toastId, duration: 8000 });
+    } finally {
+      setIsVerifyingRedirect(false);
+    }
+  };
+
 
   const handleCheckout = async (e) => {
     e.preventDefault();
@@ -760,6 +892,7 @@ const BookingEngine = () => {
 
         if (bookingError) throw bookingError;
         insertedBooking = data;
+        setBookingRef(pendingBookingRef.current);
       } else {
         const tempRef = `WEB-${(new Date()).getTime().toString().slice(-6)}`;
         const { data, error: bookingError } = await supabase.from('bookings').insert([{
@@ -786,6 +919,7 @@ const BookingEngine = () => {
         if (bookingError) throw bookingError;
         insertedBooking = data;
         pendingBookingRef.current = tempRef;
+        setBookingRef(tempRef);
       }
 
       // 2. Insert any selected services immediately, securely linked to the booking ID
@@ -828,11 +962,7 @@ const BookingEngine = () => {
 
       // 3. Handle Payment Routing
       if (paymentMethod === 'pay_online') {
-        initializePayment(onSuccess, onClose);
-        // Safeguard timeout to prevent infinite loading state if Paystack fails to load (e.g. 403 / blocked by adblocker)
-        setTimeout(() => {
-          setIsProcessing(false);
-        }, 12000);
+        setShouldTriggerPaystack(true);
       } else if (paymentMethod === 'pay_ar_deposit' || paymentMethod === 'pay_ar_full') {
         // Direct AR wallet deduction & checkout flow
         const paidAmount = paymentMethod === 'pay_ar_deposit' ? payOnlineAmount : calculateTotal();
@@ -1199,6 +1329,15 @@ const BookingEngine = () => {
       ))}
     </div>
   );
+
+  if (isVerifyingRedirect) {
+    return (
+      <div className="min-h-screen bg-dark-900 flex flex-col items-center justify-center p-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gold-500 mb-4"></div>
+        <p className="text-gray-400 text-sm">Verifying transaction and confirming your booking...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-24 min-h-screen bg-dark-900 pb-20">

@@ -443,7 +443,7 @@ const GuestFinancials = () => {
       if (!import.meta.env.VITE_PAYSTACK_PUBLIC_KEY && !paystackPublicKey) {
         return toast.error("Payment gateway is not configured.");
       }
-      initializePayment(onSuccess, onClose);
+      initializePayment({ onSuccess, onClose });
       return;
     }
 

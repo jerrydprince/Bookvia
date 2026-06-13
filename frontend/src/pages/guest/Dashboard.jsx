@@ -136,7 +136,13 @@ const GuestDashboard = () => {
   useEffect(() => {
     if (selectedPaymentRequest) {
       // Trigger Paystack payment popup
-      initializePaystack();
+      initializePaystack({
+        onSuccess: (reference) => handleServicePaymentSuccess(reference),
+        onClose: () => {
+          setSelectedPaymentRequest(null);
+          toast.error('Payment cancelled by guest.');
+        }
+      });
     }
   }, [selectedPaymentRequest]);
 
