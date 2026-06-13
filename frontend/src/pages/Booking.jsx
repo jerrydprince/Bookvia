@@ -723,8 +723,6 @@ const BookingEngine = () => {
         console.error("CRM guest sync failed:", crmErr);
       }
 
-      const tempRef = `WEB-${(new Date()).getTime().toString().slice(-6)}`;
-
       const roomPriceDetails = calculateRoomPriceDetails(selectedRoom);
       let calculatedDiscount = 0;
       if (appliedCoupon) {
@@ -736,60 +734,94 @@ const BookingEngine = () => {
         calculatedDiscount = Math.max(0, Math.min(roomPriceDetails.totalRoomPrice, calculatedDiscount));
       }
 
-      const { data: insertedBooking, error: bookingError } = await supabase.from('bookings').insert([{
-        booking_reference: tempRef,
-        guest_id: resolvedGuestId,
-        crm_guest_id: crmGuestId,
-        guest_name: `${guestForm.firstName} ${guestForm.lastName}`,
-        guest_email: guestForm.email,
-        guest_phone: guestForm.phone,
-        room_id: selectedRoom.id,
-        check_in_date: checkInDateStr,
-        check_out_date: checkOutDateStr,
-        booking_source: 'online',
-        status: 'pending',
-        total_room_price_ngn: roomPriceDetails.totalRoomPrice,
-        total_amount_ngn: calculateTotal(),
-        total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount),
-        discount_amount_ngn: calculatedDiscount,
-        amount_paid_ngn: 0,
-        payment_status: 'unpaid',
-        special_requests: guestForm.specialRequests || ''
-      }]).select().single();
+      let insertedBooking;
+      if (pendingBookingRef.current) {
+        // Update the existing pending booking instead of inserting a duplicate
+        const { data, error: bookingError } = await supabase
+          .from('bookings')
+          .update({
+            guest_id: resolvedGuestId,
+            crm_guest_id: crmGuestId,
+            guest_name: `${guestForm.firstName} ${guestForm.lastName}`,
+            guest_email: guestForm.email,
+            guest_phone: guestForm.phone,
+            room_id: selectedRoom.id,
+            check_in_date: checkInDateStr,
+            check_out_date: checkOutDateStr,
+            total_room_price_ngn: roomPriceDetails.totalRoomPrice,
+            total_amount_ngn: calculateTotal(),
+            total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount),
+            discount_amount_ngn: calculatedDiscount,
+            special_requests: guestForm.specialRequests || ''
+          })
+          .eq('booking_reference', pendingBookingRef.current)
+          .select()
+          .single();
 
-      if (bookingError) throw bookingError;
-      
-      pendingBookingRef.current = tempRef;
+        if (bookingError) throw bookingError;
+        insertedBooking = data;
+      } else {
+        const tempRef = `WEB-${(new Date()).getTime().toString().slice(-6)}`;
+        const { data, error: bookingError } = await supabase.from('bookings').insert([{
+          booking_reference: tempRef,
+          guest_id: resolvedGuestId,
+          crm_guest_id: crmGuestId,
+          guest_name: `${guestForm.firstName} ${guestForm.lastName}`,
+          guest_email: guestForm.email,
+          guest_phone: guestForm.phone,
+          room_id: selectedRoom.id,
+          check_in_date: checkInDateStr,
+          check_out_date: checkOutDateStr,
+          booking_source: 'online',
+          status: 'pending',
+          total_room_price_ngn: roomPriceDetails.totalRoomPrice,
+          total_amount_ngn: calculateTotal(),
+          total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount),
+          discount_amount_ngn: calculatedDiscount,
+          amount_paid_ngn: 0,
+          payment_status: 'unpaid',
+          special_requests: guestForm.specialRequests || ''
+        }]).select().single();
+
+        if (bookingError) throw bookingError;
+        insertedBooking = data;
+        pendingBookingRef.current = tempRef;
+      }
 
       // 2. Insert any selected services immediately, securely linked to the booking ID
-      if(insertedBooking && selectedServices.length > 0) {
-        const allAvailableServices = [...services, ...foodServices];
-        const insertPayload = selectedServices.map(sData => {
-          const service = allAvailableServices.find(s => s.id === sData.service_id);
-          let unitPrice = Number(service.base_price_ngn);
-          const isBreakfast = service.name && service.name.toLowerCase().includes('breakfast');
-          
-          if (isBreakfast) {
-            unitPrice = unitPrice * totalGuests * totalNights;
-          } else {
-            if(service.pricing_type === 'per_person') unitPrice *= totalGuests;
-            if(service.pricing_type === 'per_day') unitPrice *= totalNights;
-            if(service.pricing_type === 'per_night') unitPrice *= totalNights;
-          }
+      if (insertedBooking) {
+        // Clear any previously inserted services for this booking attempt to prevent duplicates on retry
+        await supabase.from('booking_services').delete().eq('booking_id', insertedBooking.id);
 
-          return {
-            booking_id: insertedBooking.id,
-            service_id: sData.service_id,
-            quantity: sData.quantity,
-            unit_price_ngn: unitPrice,
-            total_price_ngn: getServicePrice(service, sData.quantity),
-            scheduled_date: sData.date || null,
-            scheduled_time: sData.time || null,
-            status: 'pending'
-          };
-        });
-        const { error: insertServicesError } = await supabase.from('booking_services').insert(insertPayload);
-        if (insertServicesError) throw insertServicesError;
+        if (selectedServices.length > 0) {
+          const allAvailableServices = [...services, ...foodServices];
+          const insertPayload = selectedServices.map(sData => {
+            const service = allAvailableServices.find(s => s.id === sData.service_id);
+            let unitPrice = Number(service.base_price_ngn);
+            const isBreakfast = service.name && service.name.toLowerCase().includes('breakfast');
+            
+            if (isBreakfast) {
+              unitPrice = unitPrice * totalGuests * totalNights;
+            } else {
+              if(service.pricing_type === 'per_person') unitPrice *= totalGuests;
+              if(service.pricing_type === 'per_day') unitPrice *= totalNights;
+              if(service.pricing_type === 'per_night') unitPrice *= totalNights;
+            }
+
+            return {
+              booking_id: insertedBooking.id,
+              service_id: sData.service_id,
+              quantity: sData.quantity,
+              unit_price_ngn: unitPrice,
+              total_price_ngn: getServicePrice(service, sData.quantity),
+              scheduled_date: sData.date || null,
+              scheduled_time: sData.time || null,
+              status: 'pending'
+            };
+          });
+          const { error: insertServicesError } = await supabase.from('booking_services').insert(insertPayload);
+          if (insertServicesError) throw insertServicesError;
+        }
       }
 
       toast.dismiss(toastId);
@@ -797,6 +829,10 @@ const BookingEngine = () => {
       // 3. Handle Payment Routing
       if (paymentMethod === 'pay_online') {
         initializePayment(onSuccess, onClose);
+        // Safeguard timeout to prevent infinite loading state if Paystack fails to load (e.g. 403 / blocked by adblocker)
+        setTimeout(() => {
+          setIsProcessing(false);
+        }, 12000);
       } else if (paymentMethod === 'pay_ar_deposit' || paymentMethod === 'pay_ar_full') {
         // Direct AR wallet deduction & checkout flow
         const paidAmount = paymentMethod === 'pay_ar_deposit' ? payOnlineAmount : calculateTotal();
