@@ -1698,7 +1698,8 @@ const AdminStaffManagement = () => {
       // Step 2: Hitting backend or direct Supabase fallback to clock in or out
       if (verifiedHardware) {
         try {
-          const response = await fetch('/api/attendance/biometric', {
+          const API_BASE = import.meta.env.VITE_API_URL || '/api';
+          const response = await fetch(`${API_BASE}/attendance/biometric`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -1854,7 +1855,8 @@ const AdminStaffManagement = () => {
     
     const toastId = toast.loading(`[Simulated ADMS Device] Dispatching network push request for User PIN ${terminalUserPin}...`);
     try {
-      const response = await fetch('/api/attendance/terminal-push', {
+      const API_BASE = import.meta.env.VITE_API_URL || '/api';
+      const response = await fetch(`${API_BASE}/attendance/terminal-push`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

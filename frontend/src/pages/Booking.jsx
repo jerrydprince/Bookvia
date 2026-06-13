@@ -659,7 +659,8 @@ const BookingEngine = () => {
       }
 
       // 2. Call our secure backend verify endpoint to check with Paystack
-      const verifyRes = await fetch(`/api/payments/verify/${encodeURIComponent(refCode)}`);
+      const API_BASE = import.meta.env.VITE_API_URL || '/api';
+      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(refCode)}`);
       if (!verifyRes.ok) {
         throw new Error(`Server verification endpoint returned status ${verifyRes.status}`);
       }

@@ -10,7 +10,8 @@ import { supabase } from './supabase';
 export const sendResendEmail = async ({ to, subject, html }) => {
   try {
     console.log(`[Resend Client] Dispatching email to: ${to} via backend proxy...`);
-    const response = await fetch('/api/email/send', {
+    const API_BASE = import.meta.env.VITE_API_URL || '/api';
+    const response = await fetch(`${API_BASE}/email/send`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

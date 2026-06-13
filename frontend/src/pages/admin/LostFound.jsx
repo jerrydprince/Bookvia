@@ -394,7 +394,8 @@ const LostFound = () => {
       if (notificationData.channel === 'email' && notificationData.recipient_email) {
         try {
           const itemImageHtml = parseItemImage(notifyingItem);
-          await fetch('/api/email/send', {
+          const API_BASE = import.meta.env.VITE_API_URL || '/api';
+          await fetch(`${API_BASE}/email/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
