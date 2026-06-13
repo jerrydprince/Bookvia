@@ -753,7 +753,7 @@ const BookingEngine = () => {
         discount_amount_ngn: calculatedDiscount,
         amount_paid_ngn: 0,
         payment_status: 'unpaid',
-        special_requests: formattedSpecialRequests
+        special_requests: guestForm.specialRequests || ''
       }]).select().single();
 
       if (bookingError) throw bookingError;
