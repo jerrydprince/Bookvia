@@ -171,7 +171,7 @@ const PaymentSuccess = () => {
         )}
 
         {/* Receipt Wrapper */}
-        <div className="glass-panel border border-dark-700/60 rounded-3xl overflow-hidden shadow-2xl bg-dark-800/80 backdrop-blur-md print:border-none print:shadow-none print:bg-transparent">
+        <div className="glass-panel print-container print-a4 border border-dark-700/60 rounded-3xl overflow-hidden shadow-2xl bg-dark-800/80 backdrop-blur-md print:border-none print:shadow-none print:bg-transparent">
           
           {/* Receipt Top Section */}
           <div className="p-6 md:p-8 bg-dark-900/60 border-b border-dark-700/60 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:bg-transparent">
