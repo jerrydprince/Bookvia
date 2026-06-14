@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Coffee, Car, Shield, Tv, Wind, Waves, Dumbbell, CheckCircle, Film, Sparkles, Gamepad2, Zap, MapPin } from 'lucide-react';
+import { Wifi, Coffee, Car, Shield, Tv, Wind, Waves, Dumbbell, CheckCircle, Film, Sofa, Gamepad2, Zap, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCachedData, setCachedData } from '../utils/cache';
 
 const defaultAmenitiesList = [
-  { title: '✨ Netflix', desc: 'Premium Netflix streaming subscription for unlimited movies and show options.' },
-  { title: '✨ Luxuriously furnished', desc: 'Exquisite interior design with premium, high-end contemporary furnishings.' },
-  { title: '✨ PS5', desc: 'PlayStation 5 gaming console equipped with popular games for your entertainment.' },
-  { title: '✨ Secured, Serene and cozy Environment', desc: 'Located in a highly secured, peaceful, and cozy neighborhood.' },
-  { title: '✨ Excellent road network', desc: 'Accessible tarred roads linking to key areas smoothly.' },
-  { title: '✨ 24/7 light and running water', desc: 'Uninterrupted power supply with backup generators and continuous clean water access.' },
-  { title: '✨ Close proximity to all popular hotspots in Abuja', desc: 'Close proximity to all popular hotspots, restaurants, and shopping centers in Abuja.' }
+  { title: 'High-Speed WiFi', desc: 'Uninterrupted internet access throughout the property.' },
+  { title: '24/7 Security', desc: 'Advanced security systems and round-the-clock personnel.' },
+  { title: 'Private Parking', desc: 'Secure, dedicated parking spaces for residents and guests.' },
+  { title: 'Gourmet Kitchen', desc: 'Fully equipped kitchens with top-tier appliances.' },
+  { title: 'Smart Entertainment', desc: 'Large smart TVs with premium streaming services.' },
+  { title: 'Climate Control', desc: 'Centralized air conditioning for ultimate comfort.' },
+  { title: 'Swimming Pool', desc: 'Access to a pristine, temperature-controlled pool.' },
+  { title: 'Fitness Center', desc: 'State-of-the-art gym equipment available 24/7.' },
+  { title: 'Netflix', desc: 'Premium Netflix streaming subscription for unlimited movies and show options.' },
+  { title: 'Luxuriously Furnished', desc: 'Exquisite interior design with premium, high-end contemporary furnishings.' },
+  { title: 'PS5', desc: 'PlayStation 5 gaming console equipped with popular games for your entertainment.' },
+  { title: 'Secured, Serene and Cozy Environment', desc: 'Located in a highly secured, peaceful, and cozy neighborhood.' },
+  { title: 'Excellent Road Network', desc: 'Accessible tarred roads linking to key areas smoothly.' },
+  { title: '24/7 Light and Running Water', desc: 'Uninterrupted power supply with backup generators and continuous clean water access.' },
+  { title: 'Close Proximity to Abuja Hotspots', desc: 'Close proximity to all popular hotspots, restaurants, and shopping centers in Abuja.' }
 ];
 
 const getIconForTitle = (title) => {
@@ -22,7 +30,7 @@ const getIconForTitle = (title) => {
   if (t.includes('netflix') || t.includes('film') || t.includes('movie')) return <Film size={40} />;
   if (t.includes('ps5') || t.includes('game') || t.includes('playstation')) return <Gamepad2 size={40} />;
   if (t.includes('tv') || t.includes('smart') || t.includes('entertainment')) return <Tv size={40} />;
-  if (t.includes('furnish') || t.includes('luxury') || t.includes('design')) return <Sparkles size={40} />;
+  if (t.includes('furnish') || t.includes('luxury') || t.includes('design') || t.includes('sofa')) return <Sofa size={40} />;
   if (t.includes('light') || t.includes('electricity') || t.includes('power') || t.includes('water')) return <Zap size={40} />;
   if (t.includes('proximity') || t.includes('hotspot') || t.includes('abuja') || t.includes('map')) return <MapPin size={40} />;
   if (t.includes('air') || t.includes('climate') || t.includes('cool')) return <Wind size={40} />;
