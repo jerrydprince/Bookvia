@@ -48,6 +48,36 @@ function get_supabase_settings() {
     return [];
 }
 
+// Helper to decode Base64 logo and save as a physical file
+function get_and_optimize_logo($settings) {
+    $logo_base64 = isset($settings['contact_logo']) ? $settings['contact_logo'] : '';
+    if (empty($logo_base64)) {
+        return '';
+    }
+    
+    // Check if it is a base64 image
+    if (preg_match('/^data:image\/(\w+);base64,(.+)$/i', $logo_base64, $matches)) {
+        $type = $matches[1]; // png, jpeg, webp, etc.
+        $data = base64_decode($matches[2]);
+        
+        $filename = 'logo.' . $type;
+        $filepath = dirname(__DIR__) . '/' . $filename;
+        
+        // Write the file if it doesn't exist or is different size
+        if (!file_exists($filepath) || filesize($filepath) !== strlen($data)) {
+            @file_put_contents($filepath, $data);
+        }
+        
+        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'gittest.sparklesapartments.ng';
+        
+        return $protocol . $host . '/' . $filename;
+    }
+    
+    return $logo_base64;
+}
+
+
 // Custom SMTP client using standard secure PHP stream sockets
 function send_smtp_email($to, $subject, $html, $from, $settings, $replyTo = null) {
     $host = isset($settings['smtp_host']) ? trim($settings['smtp_host']) : '';
@@ -238,6 +268,16 @@ else if ($route === 'email/send') {
     $settings = get_supabase_settings();
     $smtpEnabled = isset($settings['smtp_enabled']) && ($settings['smtp_enabled'] === 'true' || $settings['smtp_enabled'] === true);
     
+    // Optimize base64 image strings in HTML if they match the settings logo
+    $logoUrl = get_and_optimize_logo($settings);
+    if (!empty($logoUrl)) {
+        if (isset($settings['contact_logo']) && !empty($settings['contact_logo'])) {
+            $html = str_replace($settings['contact_logo'], $logoUrl, $html);
+        }
+        // Fallback: replace any inline base64 images
+        $html = preg_replace('/src=["\']data:image\/[^;]+;base64,[^"\']+["\']/i', 'src="' . $logoUrl . '"', $html);
+    }
+    
     if ($smtpEnabled) {
         try {
             send_smtp_email($to, $subject, $html, $from, $settings);
@@ -286,17 +326,38 @@ else if ($route === 'contact/submit') {
         exit;
     }
     
+    $settings = get_supabase_settings();
+    $logoUrl = get_and_optimize_logo($settings);
+    $logoHtml = !empty($logoUrl) ? '<img src="' . $logoUrl . '" alt="Sparkles Apartments" style="max-height: 50px; object-fit: contain; margin-bottom: 8px; border-radius: 4px;" /><br/>' : '';
+
+    $systemTheme = isset($settings['system_theme']) ? $settings['system_theme'] : 'theme-luxe-gold';
+    $themeColors = [
+        'theme-slate-dark' => '#64748B',
+        'theme-luxe-gold' => '#DF6853',
+        'theme-emerald-green' => '#10B981',
+        'theme-royal-blue' => '#3B82F6',
+        'theme-sunset-orange' => '#F97316',
+        'theme-rose-burgundy' => '#F43F5E',
+        'theme-midnight-purple' => '#A855F7',
+        'theme-ocean-teal' => '#14B8A6'
+    ];
+    $accentColor = isset($themeColors[$systemTheme]) ? $themeColors[$systemTheme] : '#DF6853';
+
     // 1. Send the contact message details TO contact@sparklesapartments.ng
     $toAdmin = 'contact@sparklesapartments.ng';
     $subjectAdmin = 'New Contact Form Submission: ' . $subject;
     
     $htmlAdmin = "
-        <div style=\"font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px; border-radius: 8px;\">
-            <h2 style=\"color: #d97706; margin-top: 0;\">New message from contact form</h2>
+        <div style=\"font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-top: 6px solid {$accentColor}; max-width: 600px; border-radius: 8px;\">
+            <div style=\"text-align: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 15px; margin-bottom: 20px;\">
+                {$logoHtml}
+                <h2 style=\"color: #000; margin: 0; font-size: 20px; font-weight: bold;\">SPARKLES APARTMENTS</h2>
+                <span style=\"font-size: 11px; color: {$accentColor}; text-transform: uppercase; font-weight: bold;\">Admin Submission Alert</span>
+            </div>
             <p><strong>Name:</strong> {$name}</p>
             <p><strong>Email:</strong> {$email}</p>
             <p><strong>Subject:</strong> {$subject}</p>
-            <div style=\"margin-top: 20px; padding: 15px; background-color: #f9f9f9; border-left: 4px solid #d97706;\">
+            <div style=\"margin-top: 20px; padding: 15px; background-color: #f9f9f9; border-left: 4px solid {$accentColor};\">
                 <strong>Message:</strong><br/>
                 " . nl2br(htmlspecialchars($message)) . "
             </div>
@@ -307,17 +368,18 @@ else if ($route === 'contact/submit') {
     $subjectGuest = 'Message Received: Sparkles Apartments';
     
     $htmlGuest = "
-        <div style=\"font-family: Arial, sans-serif; padding: 25px; color: #333; max-width: 600px; margin: auto; border: 1px solid #eaeaea; border-radius: 12px;\">
+        <div style=\"font-family: Arial, sans-serif; padding: 25px; color: #333; max-width: 600px; margin: auto; border: 1px solid #eaeaea; border-top: 6px solid {$accentColor}; border-radius: 12px;\">
             <div style=\"text-align: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 15px; margin-bottom: 20px;\">
+                {$logoHtml}
                 <h2 style=\"color: #000; margin: 0; font-size: 20px; font-weight: bold;\">SPARKLES APARTMENTS</h2>
-                <span style=\"font-size: 11px; color: #9ca3af; text-transform: uppercase;\">Premium Luxury Shortlets</span>
+                <span style=\"font-size: 11px; color: {$accentColor}; text-transform: uppercase; font-weight: bold; letter-spacing: 0.1em;\">Premium Luxury Shortlets</span>
             </div>
             <p>Dear {$name},</p>
             <p>Thank you for reaching out to Sparkles Apartments. We have received your inquiry regarding <strong>\"{$subject}\"</strong>.</p>
             <p>Our dedicated team is reviewing your message and will get back to you within 24 hours.</p>
             <p>If your request is urgent, please do not hesitate to contact us directly via phone.</p>
             <p style=\"margin-top: 25px;\">Warm regards,</p>
-            <p style=\"font-weight: bold; color: #d97706; margin: 0;\">Sparkles Guest Support Team</p>
+            <p style=\"font-weight: bold; color: {$accentColor}; margin: 0;\">Sparkles Guest Support Team</p>
             <div style=\"margin-top: 30px; padding-top: 15px; border-top: 1px solid #f0f0f0; text-align: center; font-size: 11px; color: #9ca3af;\">
                 <p style=\"margin: 0;\">Phones: 08033214684, 08062332639 | Email: contact@sparklesapartments.ng</p>
                 <p style=\"margin: 5px 0 0 0;\">Plot 572 Iduwa Ogenyi Street Mabushi, Off Ahmadu Bello Way, Abuja</p>
@@ -325,7 +387,6 @@ else if ($route === 'contact/submit') {
         </div>
     ";
     
-    $settings = get_supabase_settings();
     $smtpEnabled = isset($settings['smtp_enabled']) && ($settings['smtp_enabled'] === 'true' || $settings['smtp_enabled'] === true);
     
     if ($smtpEnabled) {

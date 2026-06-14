@@ -89,7 +89,8 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
         'contact_logo', 
         'contact_address', 
         'contact_phone', 
-        'contact_email'
+        'contact_email',
+        'system_theme'
       ]);
       
     const settingsMap = sysSettings?.reduce((acc, curr) => {
@@ -105,6 +106,19 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
       console.log(`[Automation Engine] Engine is toggled offline in System Control.`);
       return { success: false, reason: 'Notification engine inactive' };
     }
+
+    const systemTheme = settingsMap.system_theme || 'theme-luxe-gold';
+    const themeColors = {
+      'theme-slate-dark': '#64748B',
+      'theme-luxe-gold': '#DF6853',
+      'theme-emerald-green': '#10B981',
+      'theme-royal-blue': '#3B82F6',
+      'theme-sunset-orange': '#F97316',
+      'theme-rose-burgundy': '#F43F5E',
+      'theme-midnight-purple': '#A855F7',
+      'theme-ocean-teal': '#14B8A6'
+    };
+    const accentColor = themeColors[systemTheme] || '#DF6853';
 
     const contactLogo = settingsMap.contact_logo || 'https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80';
     const contactAddress = settingsMap.contact_address || 'Plot 572 Iduwa Ogenyi Street Mabushi, Off Ahmadu Bello Way, Abuja';
@@ -200,27 +214,29 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
       let isSimulated = false;
 
       if (template.channel === 'email') {
+        const emailHtml = `
+          <div style="font-family: 'Outfit', sans-serif; padding: 30px; color: #1f2937; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-top: 6px solid ${accentColor}; border-radius: 16px; background-color: #ffffff;">
+            <div style="text-align: center; border-bottom: 1px solid #f3f4f6; padding-bottom: 20px; margin-bottom: 20px;">
+              ${contactLogo ? `<img src="${contactLogo}" alt="Sparkles Apartments" style="max-height: 50px; object-fit: contain; margin-bottom: 8px; border-radius: 4px;" />` : ''}
+              <h2 style="color: #000000; margin: 0; font-size: 24px; font-weight: bold; letter-spacing: 0.05em;">SPARKLES APARTMENTS</h2>
+              <span style="font-size: 11px; color: ${accentColor}; text-transform: uppercase; letter-spacing: 0.1em; font-weight: bold;">Premium Luxury Shortlets</span>
+            </div>
+            <div style="font-size: 15px; line-height: 1.6; color: #4b5563;">
+              ${parsedBody.replace(/\n/g, '<br/>')}
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #f3f4f6; text-align: center; font-size: 12px; color: #9ca3af;">
+              <p style="margin: 0 0 5px 0;">This is an automated operational alert sent from the Sparkles PMS Hub.</p>
+              <p style="margin: 0;">${contactAddress}</p>
+              <p style="margin: 5px 0 0 0;">Phones: ${contactPhone} | Email: ${contactEmail}</p>
+            </div>
+          </div>
+        `;
+
         const result = await sendResendEmail({
           to: recipient,
           subject: parsedSubject,
           from: 'booking@sparklesapartments.ng',
-          html: `
-            <div style="font-family: 'Outfit', sans-serif; padding: 30px; color: #1f2937; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff;">
-              <div style="text-align: center; border-bottom: 1px solid #f3f4f6; padding-bottom: 20px; margin-bottom: 20px;">
-                ${contactLogo ? `<img src="${contactLogo}" alt="Sparkles Apartments" style="max-height: 50px; object-fit: contain; margin-bottom: 8px; border-radius: 4px;" />` : ''}
-                <h2 style="color: #000000; margin: 0; font-size: 24px; font-weight: bold; letter-spacing: 0.05em;">SPARKLES APARTMENTS</h2>
-                <span style="font-size: 11px; color: #9ca3af; text-transform: uppercase; tracking-wider: 0.1em;">Premium Luxury Shortlets</span>
-              </div>
-              <div style="font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${parsedBody.replace(/\n/g, '<br/>')}
-              </div>
-              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #f3f4f6; text-align: center; font-size: 12px; color: #9ca3af;">
-                <p style="margin: 0 0 5px 0;">This is an automated operational alert sent from the Sparkles PMS Hub.</p>
-                <p style="margin: 0;">${contactAddress}</p>
-                <p style="margin: 5px 0 0 0;">Phones: ${contactPhone} | Email: ${contactEmail}</p>
-              </div>
-            </div>
-          `
+          html: emailHtml
         });
 
         if (result.success) {
@@ -228,6 +244,29 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
           isSimulated = !!result.simulated;
         } else {
           errorMsg = result.error || 'SMTP routing failure';
+        }
+
+        // Also duplicate to booking@sparklesapartments.ng as admin notification
+        if (recipient !== 'booking@sparklesapartments.ng') {
+          try {
+            console.log(`[Automation Engine] Forwarding admin copy of booking update to booking@sparklesapartments.ng...`);
+            const adminHtml = `
+              <div style="background-color: #f3f4f6; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 20px; font-family: sans-serif; font-size: 13px; color: #4b5563; line-height: 1.5;">
+                <strong>[PMS Admin Notification]</strong><br/>
+                Recipient: <strong>${guestName}</strong> (${recipient})<br/>
+                Trigger Event: <strong>${triggerEvent}</strong>
+              </div>
+              ${emailHtml}
+            `;
+            await sendResendEmail({
+              to: 'booking@sparklesapartments.ng',
+              subject: `[ADMIN] ${parsedSubject}`,
+              from: 'booking@sparklesapartments.ng',
+              html: adminHtml
+            });
+          } catch (adminCopyErr) {
+            console.warn(`[Automation Engine] Failed to dispatch admin copy:`, adminCopyErr);
+          }
         }
       } else {
         // SMS, WhatsApp simulation
