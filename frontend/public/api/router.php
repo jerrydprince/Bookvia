@@ -157,15 +157,15 @@ function send_smtp_email($to, $subject, $html, $from, $settings, $replyTo = null
         $body[] = "This is a multi-part message in MIME format.";
         $body[] = "--" . $boundary;
         $body[] = "Content-Type: text/plain; charset=\"UTF-8\"";
-        $body[] = "Content-Transfer-Encoding: 7bit";
+        $body[] = "Content-Transfer-Encoding: quoted-printable";
         $body[] = "";
-        $body[] = strip_tags($html);
+        $body[] = quoted_printable_encode(strip_tags($html));
         $body[] = "";
         $body[] = "--" . $boundary;
         $body[] = "Content-Type: text/html; charset=\"UTF-8\"";
-        $body[] = "Content-Transfer-Encoding: 8bit";
+        $body[] = "Content-Transfer-Encoding: quoted-printable";
         $body[] = "";
-        $body[] = $html;
+        $body[] = quoted_printable_encode($html);
         $body[] = "";
         $body[] = "--" . $boundary . "--";
         
