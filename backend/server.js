@@ -136,7 +136,7 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
 
 // Resend Email Integration
 app.post('/api/email/send', async (req, res) => {
-  const { to, subject, html } = req.body;
+  const { to, subject, html, from } = req.body;
   
   let apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -160,6 +160,7 @@ app.post('/api/email/send', async (req, res) => {
   }
 
   try {
+    const fromAddress = from ? `Sparkles Apartments <${from}>` : 'Sparkles Apartments <onboarding@resend.dev>';
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -167,7 +168,7 @@ app.post('/api/email/send', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Sparkles Apartments <onboarding@resend.dev>',
+        from: fromAddress,
         to: [to],
         subject: subject,
         html: html
@@ -179,6 +180,17 @@ app.post('/api/email/send', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Failed to send email via Resend' });
   }
+});
+
+// Contact Form Submission (Local stub)
+app.post('/api/contact/submit', async (req, res) => {
+  const { name, email, subject, message } = req.body;
+  console.log(`[Local Contact API] Received submission:`);
+  console.log(`- From: ${name} <${email}>`);
+  console.log(`- Subject: ${subject}`);
+  console.log(`- Message: ${message}`);
+  
+  res.json({ success: true });
 });
 
 // Biometric Shift Clock-in and Clock-out API Integration

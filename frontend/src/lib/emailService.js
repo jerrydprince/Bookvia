@@ -7,7 +7,7 @@ import { supabase } from './supabase';
  * to secure Resend API keys. Falls back to mock simulation or client environment 
  * key if backend is offline.
  */
-export const sendResendEmail = async ({ to, subject, html }) => {
+export const sendResendEmail = async ({ to, subject, html, from }) => {
   try {
     console.log(`[Resend Client] Dispatching email to: ${to} via backend proxy...`);
     const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -16,7 +16,7 @@ export const sendResendEmail = async ({ to, subject, html }) => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ to, subject, html })
+      body: JSON.stringify({ to, subject, html, from })
     });
 
     if (response.ok) {
@@ -203,6 +203,7 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
         const result = await sendResendEmail({
           to: recipient,
           subject: parsedSubject,
+          from: 'booking@sparklesapartments.ng',
           html: `
             <div style="font-family: 'Outfit', sans-serif; padding: 30px; color: #1f2937; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff;">
               <div style="text-align: center; border-bottom: 1px solid #f3f4f6; padding-bottom: 20px; margin-bottom: 20px;">
