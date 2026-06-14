@@ -48,6 +48,144 @@ function get_supabase_settings() {
     return [];
 }
 
+// Custom SMTP client using standard secure PHP stream sockets
+function send_smtp_email($to, $subject, $html, $from, $settings, $replyTo = null) {
+    $host = isset($settings['smtp_host']) ? trim($settings['smtp_host']) : '';
+    $port = isset($settings['smtp_port']) ? intval($settings['smtp_port']) : 25;
+    $username = isset($settings['smtp_username']) ? trim($settings['smtp_username']) : '';
+    $password = isset($settings['smtp_password']) ? trim($settings['smtp_password']) : '';
+    $secure = isset($settings['smtp_secure']) ? trim(strtolower($settings['smtp_secure'])) : 'none';
+    
+    if (empty($host) || empty($username) || empty($password)) {
+        throw new Exception("SMTP is enabled but Host, Username, or Password is not configured in settings.");
+    }
+    
+    $connectionHost = $host;
+    if ($secure === 'ssl') {
+        $connectionHost = 'ssl://' . $host;
+    }
+    
+    $socket = @fsockopen($connectionHost, $port, $errno, $errstr, 15);
+    if (!$socket) {
+        throw new Exception("Could not connect to SMTP host '$connectionHost' on port $port: $errstr ($errno)");
+    }
+    
+    $readResponse = function($socket, $expectedCode) {
+        $response = '';
+        while ($line = fgets($socket, 515)) {
+            $response .= $line;
+            if (substr($line, 3, 1) === ' ') {
+                break;
+            }
+        }
+        $code = intval(substr($response, 0, 3));
+        if ($code !== $expectedCode) {
+            throw new Exception("SMTP protocol error: Expected $expectedCode, got $code. Response: " . trim($response));
+        }
+        return $response;
+    };
+    
+    try {
+        $readResponse($socket, 220);
+        
+        $helloHost = isset($_SERVER['SERVER_NAME']) && !empty($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : 'localhost';
+        fwrite($socket, "EHLO " . $helloHost . "\r\n");
+        $readResponse($socket, 250);
+        
+        if ($secure === 'tls') {
+            fwrite($socket, "STARTTLS\r\n");
+            $readResponse($socket, 220);
+            
+            // Enable encryption on socket
+            $crypto_method = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+            if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+                $crypto_method |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+            }
+            if (defined('STREAM_CRYPTO_METHOD_TLSv1_1_CLIENT')) {
+                $crypto_method |= STREAM_CRYPTO_METHOD_TLSv1_1_CLIENT;
+            }
+            $cryptoSuccess = @stream_socket_enable_crypto($socket, true, $crypto_method);
+            if (!$cryptoSuccess) {
+                throw new Exception("Failed to upgrade SMTP connection using STARTTLS (stream_socket_enable_crypto failed).");
+            }
+            
+            fwrite($socket, "EHLO " . $helloHost . "\r\n");
+            $readResponse($socket, 250);
+        }
+        
+        fwrite($socket, "AUTH LOGIN\r\n");
+        $readResponse($socket, 334);
+        
+        fwrite($socket, base64_encode($username) . "\r\n");
+        $readResponse($socket, 334);
+        
+        fwrite($socket, base64_encode($password) . "\r\n");
+        $readResponse($socket, 235);
+        
+        // Envelope Sender MUST match the authenticated username to satisfy Exim local delivery authorization
+        fwrite($socket, "MAIL FROM:<" . $username . ">\r\n");
+        $readResponse($socket, 250);
+        
+        fwrite($socket, "RCPT TO:<" . $to . ">\r\n");
+        $readResponse($socket, 250);
+        
+        fwrite($socket, "DATA\r\n");
+        $readResponse($socket, 354);
+        
+        // Construct standard MIME headers
+        $boundary = '----=' . md5(uniqid(rand(), true));
+        
+        $senderName = "Sparkles Apartments";
+        if (strpos($from, 'contact@') !== false) {
+            $senderName = "Sparkles Contact Form";
+        } else if (strpos($from, 'info@') !== false) {
+            $senderName = "Sparkles Info";
+        }
+        
+        $headers = [];
+        $headers[] = "From: " . $senderName . " <" . $from . ">";
+        $headers[] = "Reply-To: " . ($replyTo ? $replyTo : $from);
+        $headers[] = "To: <" . $to . ">";
+        $headers[] = "Subject: " . $subject;
+        $headers[] = "Date: " . date('r');
+        $headers[] = "Message-ID: <" . uniqid('', true) . "@" . $host . ">";
+        $headers[] = "X-Mailer: PHP/" . phpversion();
+        $headers[] = "MIME-Version: 1.0";
+        $headers[] = "Content-Type: multipart/alternative; boundary=\"" . $boundary . "\"";
+        
+        $body = [];
+        $body[] = "This is a multi-part message in MIME format.";
+        $body[] = "--" . $boundary;
+        $body[] = "Content-Type: text/plain; charset=\"UTF-8\"";
+        $body[] = "Content-Transfer-Encoding: 7bit";
+        $body[] = "";
+        $body[] = strip_tags($html);
+        $body[] = "";
+        $body[] = "--" . $boundary;
+        $body[] = "Content-Type: text/html; charset=\"UTF-8\"";
+        $body[] = "Content-Transfer-Encoding: 8bit";
+        $body[] = "";
+        $body[] = $html;
+        $body[] = "";
+        $body[] = "--" . $boundary . "--";
+        
+        $messageContent = implode("\r\n", $headers) . "\r\n\r\n" . implode("\r\n", $body);
+        
+        // Escape periods at start of lines for SMTP protocol compliance
+        $messageContent = preg_replace('/^\./m', '..', $messageContent);
+        
+        fwrite($socket, $messageContent . "\r\n.\r\n");
+        $readResponse($socket, 250);
+        
+        fwrite($socket, "QUIT\r\n");
+        fclose($socket);
+        return true;
+    } catch (Exception $e) {
+        @fclose($socket);
+        throw $e;
+    }
+}
+
 // Check route
 if (preg_match('/^payments\/verify\/(.+)$/', $route, $matches)) {
     $reference = $matches[1];
@@ -96,24 +234,40 @@ else if ($route === 'email/send') {
         exit;
     }
     
-    // Set up standard HTML email headers for cPanel mail server
-    $headers = "MIME-Version: 1.0" . "\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
-    $headers .= "From: Sparkles Apartments <" . $from . ">" . "\r\n";
-    $headers .= "Reply-To: " . $from . "\r\n";
-    $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+    // Fetch system settings to check for SMTP config
+    $settings = get_supabase_settings();
+    $smtpEnabled = isset($settings['smtp_enabled']) && ($settings['smtp_enabled'] === 'true' || $settings['smtp_enabled'] === true);
     
-    // Send email using local MTA
-    $success = mail($to, $subject, $html, $headers);
-    
-    if ($success) {
-        http_response_code(200);
-        echo json_encode(["success" => true, "id" => "cpanel_mail_" . uniqid()]);
-        exit;
+    if ($smtpEnabled) {
+        try {
+            send_smtp_email($to, $subject, $html, $from, $settings);
+            http_response_code(200);
+            echo json_encode(["success" => true, "id" => "cpanel_smtp_" . uniqid()]);
+            exit;
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["error" => "SMTP Authentication failed: " . $e->getMessage()]);
+            exit;
+        }
     } else {
-        http_response_code(500);
-        echo json_encode(["error" => "PHP mail() execution failed on cPanel server."]);
-        exit;
+        // Fallback to standard HTML email headers for cPanel mail server via PHP mail()
+        $headers = "MIME-Version: 1.0" . "\r\n";
+        $headers .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
+        $headers .= "From: Sparkles Apartments <" . $from . ">" . "\r\n";
+        $headers .= "Reply-To: " . $from . "\r\n";
+        $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+        
+        $success = mail($to, $subject, $html, $headers);
+        
+        if ($success) {
+            http_response_code(200);
+            echo json_encode(["success" => true, "id" => "cpanel_mail_" . uniqid()]);
+            exit;
+        } else {
+            http_response_code(500);
+            echo json_encode(["error" => "PHP mail() execution failed on cPanel server."]);
+            exit;
+        }
     }
 }
 else if ($route === 'contact/submit') {
@@ -149,13 +303,6 @@ else if ($route === 'contact/submit') {
         </div>
     ";
     
-    $headersAdmin = "MIME-Version: 1.0" . "\r\n";
-    $headersAdmin .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
-    $headersAdmin .= "From: Sparkles Contact Form <contact@sparklesapartments.ng>" . "\r\n";
-    $headersAdmin .= "Reply-To: {$name} <{$email}>" . "\r\n";
-    
-    $adminSent = mail($toAdmin, $subjectAdmin, $htmlAdmin, $headersAdmin);
-    
     // 2. Send an AUTO-RESPONDER to the guest's email address
     $subjectGuest = 'Message Received: Sparkles Apartments';
     
@@ -178,20 +325,52 @@ else if ($route === 'contact/submit') {
         </div>
     ";
     
-    $headersGuest = "MIME-Version: 1.0" . "\r\n";
-    $headersGuest .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
-    $headersGuest .= "From: Sparkles Apartments <contact@sparklesapartments.ng>" . "\r\n";
-    $headersGuest .= "Reply-To: contact@sparklesapartments.ng" . "\r\n";
+    $settings = get_supabase_settings();
+    $smtpEnabled = isset($settings['smtp_enabled']) && ($settings['smtp_enabled'] === 'true' || $settings['smtp_enabled'] === true);
     
-    $guestSent = mail($email, $subjectGuest, $htmlGuest, $headersGuest);
-    
-    if ($adminSent && $guestSent) {
-        echo json_encode(["success" => true]);
-        exit;
+    if ($smtpEnabled) {
+        try {
+            // Send inquiry to admin
+            $adminSent = send_smtp_email($toAdmin, $subjectAdmin, $htmlAdmin, 'contact@sparklesapartments.ng', $settings, "{$name} <{$email}>");
+            
+            // Send auto-responder to guest
+            $guestSent = send_smtp_email($email, $subjectGuest, $htmlGuest, 'contact@sparklesapartments.ng', $settings);
+            
+            if ($adminSent && $guestSent) {
+                echo json_encode(["success" => true]);
+                exit;
+            } else {
+                throw new Exception("SMTP delivered failed silently.");
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(["error" => "SMTP Authentication failed: " . $e->getMessage()]);
+            exit;
+        }
     } else {
-        http_response_code(500);
-        echo json_encode(["error" => "Failed to deliver contact message or auto-responder."]);
-        exit;
+        // Fallback to PHP mail()
+        $headersAdmin = "MIME-Version: 1.0" . "\r\n";
+        $headersAdmin .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
+        $headersAdmin .= "From: Sparkles Contact Form <contact@sparklesapartments.ng>" . "\r\n";
+        $headersAdmin .= "Reply-To: {$name} <{$email}>" . "\r\n";
+        
+        $adminSent = mail($toAdmin, $subjectAdmin, $htmlAdmin, $headersAdmin);
+        
+        $headersGuest = "MIME-Version: 1.0" . "\r\n";
+        $headersGuest .= "Content-Type: text/html; charset=UTF-8" . "\r\n";
+        $headersGuest .= "From: Sparkles Apartments <contact@sparklesapartments.ng>" . "\r\n";
+        $headersGuest .= "Reply-To: contact@sparklesapartments.ng" . "\r\n";
+        
+        $guestSent = mail($email, $subjectGuest, $htmlGuest, $headersGuest);
+        
+        if ($adminSent && $guestSent) {
+            echo json_encode(["success" => true]);
+            exit;
+        } else {
+            http_response_code(500);
+            echo json_encode(["error" => "Failed to deliver contact message or auto-responder via mail()."]);
+            exit;
+        }
     }
 }
 else {

@@ -69,6 +69,12 @@ const AdminSettings = () => {
     quickbooks_client_id: '',
     quickbooks_client_secret: '',
     resend_enabled: false,
+    smtp_host: 'mail.sparklesapartments.ng',
+    smtp_port: '465',
+    smtp_username: 'booking@sparklesapartments.ng',
+    smtp_password: '',
+    smtp_secure: 'ssl',
+    smtp_enabled: true,
     mailchimp_enabled: false,
     quickbooks_enabled: false,
     hotel_bank_name: 'Access Bank Plc',
@@ -1316,52 +1322,95 @@ const AdminSettings = () => {
                       </div>
                     </div>
 
-                    {/* B. Resend SMTP / Email API */}
+                    {/* B. SMTP Webmail Email Dispatcher */}
                     <div className="bg-dark-900/60 backdrop-blur-md p-6 border border-dark-700/60 rounded-2xl relative overflow-hidden shadow-lg">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-bl-full pointer-events-none" />
                       
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4 border-b border-dark-800/60 pb-4">
                         <div>
                           <h4 className="font-bold text-white text-base flex items-center gap-2">
-                            <Mail size={18} className="text-amber-500"/> Resend SMTP & Email Dispatcher
+                            <Mail size={18} className="text-amber-500"/> SMTP Webmail Email Dispatcher
                           </h4>
-                          <p className="text-xs text-gray-400 mt-1">Configure your Resend API to handle guest bookings alerts & check-outs in real time.</p>
+                          <p className="text-xs text-gray-400 mt-1">Configure your cPanel SMTP server to dispatch booking alerts, receipts, and contact responses.</p>
                         </div>
                         
                         {/* Enabled Switch */}
                         <div className="flex items-center gap-3 bg-dark-950/60 p-2.5 border border-dark-800 rounded-xl w-fit">
                           <input 
                             type="checkbox" 
-                            id="resendEnabled" 
-                            checked={settings.resend_enabled === 'true' || settings.resend_enabled === true} 
-                            onChange={e => setSettings({...settings, resend_enabled: e.target.checked})} 
+                            id="smtpEnabled" 
+                            checked={settings.smtp_enabled === 'true' || settings.smtp_enabled === true} 
+                            onChange={e => setSettings({...settings, smtp_enabled: e.target.checked})} 
                             className="w-4 h-4 accent-gold-500 cursor-pointer" 
                           />
-                          <label htmlFor="resendEnabled" className="text-xs font-semibold text-white cursor-pointer uppercase tracking-wider">
-                            {(settings.resend_enabled === 'true' || settings.resend_enabled === true) ? 'Active' : 'Disabled'}
+                          <label htmlFor="smtpEnabled" className="text-xs font-semibold text-white cursor-pointer uppercase tracking-wider">
+                            {(settings.smtp_enabled === 'true' || settings.smtp_enabled === true) ? 'Active' : 'Disabled'}
                           </label>
                         </div>
                       </div>
 
                       <div className="space-y-6">
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Resend API Key</label>
-                          <div className="relative">
-                            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-500">
-                              <Key size={14} />
-                            </span>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">SMTP Host</label>
+                            <input 
+                              type="text" 
+                              value={settings.smtp_host || ''} 
+                              onChange={e => setSettings({...settings, smtp_host: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                              placeholder="mail.sparklesapartments.ng" 
+                            />
+                          </div>
+                          
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">SMTP Port</label>
+                            <input 
+                              type="text" 
+                              value={settings.smtp_port || ''} 
+                              onChange={e => setSettings({...settings, smtp_port: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                              placeholder="465" 
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">SMTP Username (Email)</label>
+                            <input 
+                              type="text" 
+                              value={settings.smtp_username || ''} 
+                              onChange={e => setSettings({...settings, smtp_username: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                              placeholder="booking@sparklesapartments.ng" 
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">SMTP Password</label>
                             <input 
                               type="password" 
-                              value={settings.resend_api_key || ''} 
-                              onChange={e => setSettings({...settings, resend_api_key: e.target.value})} 
-                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 pl-10 pr-4 focus:border-gold-500 outline-none text-sm font-mono" 
-                              placeholder="re_..." 
+                              value={settings.smtp_password || ''} 
+                              onChange={e => setSettings({...settings, smtp_password: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                              placeholder="••••••••••••" 
                             />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Encryption / Security</label>
+                            <select 
+                              value={settings.smtp_secure || 'ssl'} 
+                              onChange={e => setSettings({...settings, smtp_secure: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm"
+                            >
+                              <option value="ssl">SSL (Port 465 - Recommended)</option>
+                              <option value="tls">TLS/STARTTLS (Port 587)</option>
+                              <option value="none">None (Plaintext - Port 25)</option>
+                            </select>
                           </div>
                         </div>
 
                         {/* Interactive testing sub-panel */}
-                        {(settings.resend_enabled === 'true' || settings.resend_enabled === true) && (
+                        {(settings.smtp_enabled === 'true' || settings.smtp_enabled === true) && (
                           <div className="bg-dark-950/60 border border-dark-800 rounded-xl p-4 space-y-3.5 animate-in slide-in-from-top-2 duration-250">
                             <span className="text-xs font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
                               <Send size={12} /> Connection Verification Console
@@ -1372,7 +1421,7 @@ const AdminSettings = () => {
                                 value={testEmail} 
                                 onChange={e => setTestEmail(e.target.value)} 
                                 className="flex-1 bg-dark-900 border border-dark-800 text-white rounded-lg px-3 py-2 text-xs outline-none focus:border-gold-500" 
-                                placeholder="Enter recipient email (e.g. guest@example.com)" 
+                                placeholder="Enter recipient email (e.g. booking@sparklesapartments.ng)" 
                               />
                               <button 
                                 type="button" 
