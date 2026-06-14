@@ -45,6 +45,10 @@ if (!file_exists($repoPath)) {
 }
 
 if (file_exists($repoPath) && chdir($repoPath)) {
+    // Clean untracked files and reset any local modifications to avoid merge conflicts
+    exec('git reset --hard HEAD 2>&1', $output);
+    exec('git clean -fd 2>&1', $output);
+    
     exec('git fetch origin main 2>&1', $output, $return_var);
     exec('git reset --hard origin/main 2>&1', $output, $return_var);
     
@@ -72,6 +76,9 @@ echo "\nCommand Output:\n";
 echo implode("\n", $output);
 
 if ($return_var === 0) {
+    if (function_exists('opcache_reset')) {
+        @opcache_reset();
+    }
     echo "\n\nDeployment Completed Successfully!";
 } else {
     echo "\n\nDeployment Failed with code: " . $return_var;
