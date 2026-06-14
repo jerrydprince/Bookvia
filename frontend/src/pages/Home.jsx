@@ -154,8 +154,8 @@ const Home = () => {
   return (
     <div className="w-full">
       {/* Hero Section */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden bg-dark-950">
-        <AnimatePresence mode="wait">
+      <section className="relative h-screen flex items-center justify-center overflow-hidden bg-[#09090b]">
+        <AnimatePresence>
           <motion.div
             key={currentSlide}
             initial={{ opacity: 0, scale: 1.05 }}
