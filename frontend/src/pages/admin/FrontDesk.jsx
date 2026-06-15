@@ -2474,7 +2474,7 @@ const AdminFrontDesk = () => {
                         onClick={() => setActiveCheckOut(booking)}
                         className="bg-dark-600 text-white hover:bg-dark-500 py-1.5 px-4 text-sm rounded transition-colors"
                       >
-                        Process Check-Out
+                        {booking.payment_status === 'paid' ? 'Mark as Checked Out' : 'Process Check-Out'}
                       </button>
                     </div>
                   ))
@@ -2544,7 +2544,7 @@ const AdminFrontDesk = () => {
                             Add Visitor
                           </button>
                           <button onClick={() => setActiveCheckOut(booking)} className="text-gray-400 hover:text-white text-sm font-medium transition-colors border border-dark-600 hover:border-gray-500 px-3 py-1 rounded">
-                            Check Out
+                            {booking.payment_status === 'paid' ? 'Mark as Checked Out' : 'Check Out'}
                           </button>
                         </div>
                       </div>
@@ -3696,7 +3696,7 @@ const AdminFrontDesk = () => {
                     }}
                     className="w-full bg-brand-500 hover:bg-brand-400 text-dark-900 font-bold py-3 text-sm transition-all rounded shadow-[0_2px_8px_rgba(234,179,8,0.25)]"
                   >
-                    Process Check-Out Workflow
+                    {selectedCalendarBooking.payment_status === 'paid' ? 'Mark as Checked Out' : 'Process Check-Out Workflow'}
                   </button>
                 )}
                 {selectedCalendarBooking.status === 'checked_in' && (

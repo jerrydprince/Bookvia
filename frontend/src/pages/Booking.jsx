@@ -330,7 +330,8 @@ const BookingEngine = () => {
         const allowsCheckOut = !room.allowed_check_out_days || room.allowed_check_out_days.length === 0 || room.allowed_check_out_days.includes(checkOutDay);
         
         const taskStatus = latestTaskByRoom[room.id];
-        const isClean = !taskStatus || taskStatus === 'inspected';
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const isClean = !taskStatus || taskStatus === 'inspected' || checkInDateStr > todayStr;
 
         return {
           ...room,

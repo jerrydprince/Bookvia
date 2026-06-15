@@ -74,7 +74,7 @@ const RoomTransferModal = ({ isOpen, onClose, booking, onSuccess }) => {
         const isStatusAvailable = r.status === 'available';
         const isBooked = bookedRoomIds.has(r.id);
         const taskStatus = latestTaskByRoom[r.id];
-        const isClean = !taskStatus || taskStatus === 'inspected';
+        const isClean = !taskStatus || taskStatus === 'inspected' || startCheck > todayStr;
         return !isSelf && isStatusAvailable && !isBooked && isClean;
       });
       

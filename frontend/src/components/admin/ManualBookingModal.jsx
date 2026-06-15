@@ -354,11 +354,12 @@ const ManualBookingModal = ({ isOpen, onClose, onSuccess, preselectedRoomId }) =
 
     const bookedRoomIds = new Set((bookedRooms || []).map(b => typeof b === 'string' ? b : (b.booked_room_id || b.room_id || b.id || Object.values(b)[0])));
     
-    // A room is only available if it is clean (latest status is 'inspected' or no tasks logged yet)
+    // A room is only available if it is clean (latest status is 'inspected' or no tasks logged yet, or booking is in the future)
     const actuallyAvailable = rooms.filter(r => {
       const isBooked = bookedRoomIds.has(r.id);
       const taskStatus = latestTaskByRoom[r.id];
-      const isClean = !taskStatus || taskStatus === 'inspected';
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const isClean = !taskStatus || taskStatus === 'inspected' || newBooking.checkIn > todayStr;
       return !isBooked && isClean;
     });
 
