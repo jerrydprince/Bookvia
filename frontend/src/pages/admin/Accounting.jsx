@@ -4550,18 +4550,21 @@ const AdminAccounting = () => {
 
               {/* Signatures */}
               <div className="flex justify-between items-end pt-12 border-t border-dashed border-gray-200">
-                <div className="text-center w-40">
+                <div className="text-center w-36">
                   <div className="border-b border-gray-300 h-8"></div>
                   <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Employee Signature</span>
+                </div>
+                <div className="text-center w-40">
+                  <div className="border-b border-gray-300 h-8"></div>
+                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Prepared By</span>
                 </div>
                 <div className="text-center w-48 relative">
                   {/* Subtle verified watermark */}
                   <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 text-green-600/10 font-bold border-4 border-green-600/10 rounded-xl px-4 py-1 rotate-[-12deg] text-xs select-none">
                     PAYROLL VERIFIED
                   </div>
-                  <div className="font-serif italic text-pure-black text-sm h-8 flex items-end justify-center">Luxe Accountant</div>
-                  <div className="border-b border-gray-300"></div>
-                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Authorized Signatory</span>
+                  <div className="border-b border-gray-300 h-8"></div>
+                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Audited By (Hotel Manager)</span>
                 </div>
               </div>
 
@@ -4900,17 +4903,16 @@ const AdminAccounting = () => {
 
               {/* Signatures */}
               <div className="flex justify-between items-end pt-12 border-t border-dashed border-gray-200">
-                <div className="text-center w-40">
+                <div className="text-center w-48">
                   <div className="border-b border-gray-300 h-8"></div>
-                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Audited By (External)</span>
+                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Prepared By</span>
                 </div>
                 <div className="text-center w-48 relative">
                   <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 text-green-600/10 font-bold border-4 border-green-600/10 rounded-xl px-4 py-1 rotate-[-12deg] text-xs select-none">
                     REPORT COMPILED
                   </div>
-                  <div className="font-serif italic text-pure-black text-sm h-8 flex items-end justify-center">Luxe Head of Finance</div>
-                  <div className="border-b border-gray-300"></div>
-                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Authorized Signatory</span>
+                  <div className="border-b border-gray-300 h-8"></div>
+                  <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Audited By (Hotel Manager)</span>
                 </div>
               </div>
 
@@ -5577,17 +5579,16 @@ const AdminAccounting = () => {
 
               {/* Signatures */}
               <div className="flex justify-between items-end pt-12 border-t border-dashed border-gray-300 text-left">
-                <div className="text-center w-40">
-                  <div className="border-b border-gray-300 h-6"></div>
-                  <span className="text-[9px] text-pure-gray-400 font-bold block mt-1.5 uppercase tracking-wider">Audited By (Internal)</span>
+                <div className="text-center w-48">
+                  <div className="border-b border-gray-300 h-8"></div>
+                  <span className="text-[9px] text-pure-gray-400 font-bold block mt-1.5 uppercase tracking-wider">Prepared By</span>
                 </div>
                 <div className="text-center w-48 relative">
                   <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 text-green-700/10 font-bold border-4 border-green-700/10 rounded-xl px-4 py-1 rotate-[-12deg] text-xs select-none">
                     AUDIT COMPLETED
                   </div>
-                  <div className="font-serif italic text-pure-black text-sm h-6 flex items-end justify-center font-semibold">Luxe Operations Auditor</div>
-                  <div className="border-b border-gray-300"></div>
-                  <span className="text-[9px] text-pure-gray-400 font-bold block mt-1.5 uppercase tracking-wider">Authorized Seal</span>
+                  <div className="border-b border-gray-300 h-8"></div>
+                  <span className="text-[9px] text-pure-gray-400 font-bold block mt-1.5 uppercase tracking-wider">Audited By (Hotel Manager)</span>
                 </div>
               </div>
             </div>
@@ -6049,6 +6050,7 @@ const AdminAccounting = () => {
                     value={settlementMonth}
                     onChange={e => setSettlementMonth(Number(e.target.value))}
                     className="bg-white border border-gray-300 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-brand-500 font-semibold cursor-pointer text-pure-black"
+                    style={{ backgroundColor: '#ffffff', color: '#000000' }}
                   >
                     {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
                       <option key={idx} value={idx}>{m}</option>
@@ -6061,6 +6063,7 @@ const AdminAccounting = () => {
                     value={settlementYear}
                     onChange={e => setSettlementYear(Number(e.target.value))}
                     className="bg-white border border-gray-300 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-brand-500 font-semibold cursor-pointer text-pure-black"
+                    style={{ backgroundColor: '#ffffff', color: '#000000' }}
                   >
                     {[2024, 2025, 2026, 2027, 2028].map(y => (
                       <option key={y} value={y}>{y}</option>
@@ -6219,31 +6222,36 @@ const AdminAccounting = () => {
               </div>
 
               {/* Bank Settlement Summary Instructions */}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-xs text-pure-gray-500 space-y-2 mt-8 leading-relaxed">
-                <strong className="text-pure-black block mb-1 uppercase tracking-wider text-[10px]">Bank Settlement Instructions</strong>
-                <p>Please initiate bank transfer payouts for the employees listed above from the hotel corporate account:</p>
-                <div className="grid grid-cols-3 gap-4 font-mono text-[11px] text-pure-black py-2 bg-white p-3 rounded-lg border border-gray-100">
+              <div 
+                className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-xs text-pure-gray-500 space-y-2 mt-8 leading-relaxed"
+                style={{ backgroundColor: '#f9fafb', color: '#4b5563', borderColor: '#e5e7eb' }}
+              >
+                <strong className="text-pure-black block mb-1 uppercase tracking-wider text-[10px]" style={{ color: '#000000' }}>Bank Settlement Instructions</strong>
+                <p style={{ color: '#4b5563' }}>Please initiate bank transfer payouts for the employees listed above from the hotel corporate account:</p>
+                <div 
+                  className="grid grid-cols-3 gap-4 font-mono text-[11px] text-pure-black py-2 bg-white p-3 rounded-lg border border-gray-100"
+                  style={{ backgroundColor: '#ffffff', color: '#000000', borderColor: '#f3f4f6' }}
+                >
                   <div>
-                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase">Source Bank</span>
-                    <strong>{contactInfo.hotel_bank_name || 'Access Bank Plc'}</strong>
+                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase" style={{ color: '#9ca3af' }}>Source Bank</span>
+                    <strong style={{ color: '#000000' }}>{contactInfo.hotel_bank_name || 'Access Bank Plc'}</strong>
                   </div>
                   <div>
-                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase">Account Name</span>
-                    <strong>{contactInfo.hotel_account_name || 'Luxe Elite Hotels Ltd'}</strong>
+                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase" style={{ color: '#9ca3af' }}>Account Name</span>
+                    <strong style={{ color: '#000000' }}>{contactInfo.hotel_account_name || 'Luxe Elite Hotels Ltd'}</strong>
                   </div>
                   <div>
-                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase">Account Number</span>
-                    <strong>{contactInfo.hotel_account_number || '0098172635'}</strong>
+                    <span className="text-[9px] text-pure-gray-400 block font-bold font-sans uppercase" style={{ color: '#9ca3af' }}>Account Number</span>
+                    <strong style={{ color: '#000000' }}>{contactInfo.hotel_account_number || '0098172635'}</strong>
                   </div>
                 </div>
-                <p className="text-[10px] text-pure-gray-450 italic mt-2">Note: This is an official audit-locked document. All calculations have been cross-checked with active duty attendance clock logs and verified role salary exceptions.</p>
+                <p className="text-[10px] text-pure-gray-450 italic mt-2" style={{ color: '#6b7280' }}>Note: This is an official audit-locked document. All calculations have been cross-checked with active duty attendance clock logs and verified role salary exceptions.</p>
               </div>
 
               {/* Signatures */}
               <div className="flex justify-between items-end pt-12 border-t border-dashed border-gray-200 mt-12">
                 <div className="text-center w-48 relative">
-                  <div className="font-serif italic text-pure-black text-sm h-8 flex items-end justify-center">Luxe Accountant</div>
-                  <div className="border-b border-gray-300"></div>
+                  <div className="border-b border-gray-300 h-8"></div>
                   <span className="text-[10px] text-pure-gray-400 font-semibold block mt-1.5 uppercase">Prepared By</span>
                 </div>
                 <div className="text-center w-48 relative">

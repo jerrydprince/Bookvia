@@ -1466,6 +1466,18 @@ const AdminBilling = () => {
               );
             })()}
 
+            {/* Signatures */}
+            <div className="flex justify-between items-end pt-12 border-t border-dashed border-dark-700 print:border-gray-200 mt-12 text-left">
+              <div className="text-center w-48">
+                <div className="border-b border-dark-700 print:border-gray-300 h-8"></div>
+                <span className="text-[10px] text-gray-450 print:text-gray-500 font-semibold block mt-1.5 uppercase">Prepared By</span>
+              </div>
+              <div className="text-center w-48">
+                <div className="border-b border-dark-700 print:border-gray-300 h-8"></div>
+                <span className="text-[10px] text-gray-450 print:text-gray-500 font-semibold block mt-1.5 uppercase">Audited By (Hotel Manager)</span>
+              </div>
+            </div>
+
             <div className="mt-16 text-center text-xs text-gray-400 print:text-gray-500 border-t border-dark-700 print:border-gray-200 pt-4">
               <p>Thank you for choosing Sparkles Apartments.</p>
               <p>Payment is due by the specified due date. Late payments may incur additional fees.</p>

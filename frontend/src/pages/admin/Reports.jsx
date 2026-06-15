@@ -510,6 +510,17 @@ const AdminReports = () => {
               </table>
             )}
           </div>
+          {/* Print Signatures */}
+          <div className="hidden print:flex justify-between items-end pt-12 border-t border-dashed border-black mt-12 text-left text-black">
+            <div className="text-center w-48">
+              <div className="border-b border-black h-8"></div>
+              <span className="text-[10px] text-gray-650 font-semibold block mt-1.5 uppercase">Prepared By</span>
+            </div>
+            <div className="text-center w-48">
+              <div className="border-b border-black h-8"></div>
+              <span className="text-[10px] text-gray-650 font-semibold block mt-1.5 uppercase">Audited By (Hotel Manager)</span>
+            </div>
+          </div>
         </div>
       ) : activeTab === 'monthly' && hasAccess('Monthly Reports') ? (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">

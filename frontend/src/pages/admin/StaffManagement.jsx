@@ -2486,6 +2486,18 @@ const AdminStaffManagement = () => {
                           )}
                         </tbody>
                       </table>
+
+                      {/* Signatures */}
+                      <div className="flex justify-between items-end pt-12 border-t border-dashed border-gray-300 mt-12 text-left">
+                        <div className="text-center w-48">
+                          <div className="border-b border-gray-300 h-8"></div>
+                          <span className="text-[10px] text-gray-500 font-semibold block mt-1.5 uppercase">Prepared By</span>
+                        </div>
+                        <div className="text-center w-48">
+                          <div className="border-b border-gray-300 h-8"></div>
+                          <span className="text-[10px] text-gray-500 font-semibold block mt-1.5 uppercase">Audited By (Hotel Manager)</span>
+                        </div>
+                      </div>
                     </div>
                   </>
                 ) : (
