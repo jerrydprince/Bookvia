@@ -268,8 +268,21 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
             console.warn(`[Automation Engine] Failed to dispatch admin copy:`, adminCopyErr);
           }
         }
+      } else if (template.channel === 'sms') {
+        // Real SMS gateway dispatch
+        const result = await sendSMSNotification({
+          to: recipient,
+          message: parsedBody
+        });
+
+        if (result.success) {
+          sentStatus = 'sent';
+          isSimulated = !!result.simulated;
+        } else {
+          errorMsg = result.error || 'SMS Gateway routing failure';
+        }
       } else {
-        // SMS, WhatsApp simulation
+        // WhatsApp, Push simulation
         console.log(`[Automation Engine] Simulating "${template.channel}" dispatch to ${recipient}:\n${parsedBody}`);
         await new Promise(resolve => setTimeout(resolve, 400));
         sentStatus = 'sent';
@@ -298,5 +311,34 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
   } catch (err) {
     console.error(`[Automation Engine] Core trigger execution crash:`, err);
     return { success: false, error: err.message };
+  }
+};
+
+/**
+ * SMS API Send Client-Side Helper
+ */
+export const sendSMSNotification = async ({ to, message }) => {
+  try {
+    console.log(`[SMS Client] Dispatching SMS to: ${to} via backend proxy...`);
+    const API_BASE = import.meta.env.VITE_API_URL || '/api';
+    const response = await fetch(`${API_BASE}/sms/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to, message })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return { success: true, id: data.messageId, simulated: !!data.simulated };
+    }
+
+    const errText = await response.text();
+    console.warn(`[SMS Client] Backend SMS proxy failed: ${errText}`);
+    return { success: false, error: errText };
+  } catch (e) {
+    console.error(`[SMS Client] Backend SMS proxy unreachable: ${e.message}`);
+    return { success: false, error: e.message };
   }
 };

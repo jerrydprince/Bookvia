@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
-import { MapPin, Globe, Shield, CreditCard, Activity, Lock, Mail, FileText, Save, GitBranch, Puzzle, Zap, ShieldAlert, Phone, User, Home, Check, AlertCircle, RefreshCw, Database, Key, Cpu, Send, Plus, X } from 'lucide-react';
+import { MapPin, Globe, Shield, CreditCard, Activity, Lock, Mail, FileText, Save, GitBranch, Puzzle, Zap, ShieldAlert, Phone, User, Home, Check, AlertCircle, RefreshCw, Database, Key, Cpu, Send, Plus, X, MessageSquare } from 'lucide-react';
 import { clearCache } from '../../utils/cache';
 import { useAuth } from '../../context/AuthContext';
 import Automations from './Automations';
@@ -52,6 +52,12 @@ const AdminSettings = () => {
     email_welcome_subject: 'Welcome to Luxe Apartments',
     email_welcome_body: 'Dear {guest_name}, we are thrilled to host you...',
     sms_confirmation_template: 'Hi {guest_name}, your booking {booking_ref} is confirmed!',
+    sms_gateway: 'mock',
+    sms_termii_api_key: '',
+    sms_termii_sender_id: 'Sparkles',
+    sms_twilio_account_sid: '',
+    sms_twilio_auth_token: '',
+    sms_twilio_from_number: '',
     notification_engine_active: true,
     invoice_prefix: 'INV-',
     invoice_footer_notes: 'Thank you for your business. Payment is due within 14 days.',
@@ -1685,6 +1691,92 @@ const AdminSettings = () => {
                             </button>
                           </div>
                         )}
+                      </div>
+                    </div>
+
+                    {/* SMS Notification Gateway */}
+                    <div className="bg-dark-900/60 backdrop-blur-md p-6 border border-dark-700/60 rounded-2xl relative overflow-hidden shadow-lg mt-6">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/5 rounded-bl-full pointer-events-none" />
+                      <h4 className="font-bold text-white text-base mb-4 flex items-center gap-2">
+                        <MessageSquare size={18} className="text-amber-500"/> SMS Notification Gateway
+                      </h4>
+                      <p className="text-xs text-gray-400 mb-6 font-medium">Configure credentials for automated guest SMS alerts, check-in updates, and checkout reminders.</p>
+                      
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-1.5 md:col-span-2">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">SMS Gateway Provider</label>
+                            <select 
+                              value={settings.sms_gateway || 'mock'} 
+                              onChange={e => setSettings({...settings, sms_gateway: e.target.value})} 
+                              className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm cursor-pointer"
+                            >
+                              <option value="mock" className="bg-dark-900 text-white">Mock / Sandbox Mode (Logs to delivery logs)</option>
+                              <option value="termii" className="bg-dark-900 text-white">Termii SMS (Nigeria / Africa)</option>
+                              <option value="twilio" className="bg-dark-900 text-white">Twilio SMS (Global Delivery)</option>
+                            </select>
+                          </div>
+
+                          {settings.sms_gateway === 'termii' && (
+                            <>
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Termii API Key</label>
+                                <input 
+                                  type="password" 
+                                  value={settings.sms_termii_api_key || ''} 
+                                  onChange={e => setSettings({...settings, sms_termii_api_key: e.target.value})} 
+                                  className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                                  placeholder="TL..." 
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Termii Sender ID</label>
+                                <input 
+                                  type="text" 
+                                  value={settings.sms_termii_sender_id || ''} 
+                                  onChange={e => setSettings({...settings, sms_termii_sender_id: e.target.value})} 
+                                  className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm" 
+                                  placeholder="e.g. Sparkles" 
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {settings.sms_gateway === 'twilio' && (
+                            <>
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Twilio Account SID</label>
+                                <input 
+                                  type="text" 
+                                  value={settings.sms_twilio_account_sid || ''} 
+                                  onChange={e => setSettings({...settings, sms_twilio_account_sid: e.target.value})} 
+                                  className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                                  placeholder="AC..." 
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Twilio Auth Token</label>
+                                <input 
+                                  type="password" 
+                                  value={settings.sms_twilio_auth_token || ''} 
+                                  onChange={e => setSettings({...settings, sms_twilio_auth_token: e.target.value})} 
+                                  className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                                  placeholder="••••••••••••" 
+                                />
+                              </div>
+                              <div className="space-y-1.5 md:col-span-2">
+                                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Twilio From Number (Virtual Phone Number)</label>
+                                <input 
+                                  type="text" 
+                                  value={settings.sms_twilio_from_number || ''} 
+                                  onChange={e => setSettings({...settings, sms_twilio_from_number: e.target.value})} 
+                                  className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 px-4 focus:border-gold-500 outline-none text-sm font-mono" 
+                                  placeholder="e.g. +18335550199" 
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
 

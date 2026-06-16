@@ -152,6 +152,7 @@ const AdminAccounting = () => {
   const [voidCorrectMethod, setVoidCorrectMethod] = useState('cash');
   const [voidCorrectCategory, setVoidCorrectCategory] = useState('');
   const [voidCorrectNotes, setVoidCorrectNotes] = useState('');
+  const [ledgerSubTab, setLedgerSubTab] = useState('all');
 
   useEffect(() => {
     fetchFinancialData();
@@ -1118,6 +1119,11 @@ const AdminAccounting = () => {
   };
 
   const handleReopenDepartment = async (deptKey) => {
+    const allowedRoles = ['super_admin', 'admin', 'hotel_manager', 'hotel_owner'];
+    if (!profile || !allowedRoles.includes(profile.role)) {
+      return toast.error("You do not have authorization to reopen departmental ledgers. Contact an Administrator or Manager.");
+    }
+
     const todayStr = format(new Date(), 'yyyy-MM-dd');
     
     // Check if it's actually closed
@@ -2188,6 +2194,40 @@ const AdminAccounting = () => {
 
     // Apply Multi-Criteria Filters
     return combined.filter(item => {
+      // 1. Departmental Sub-Tab Filter
+      if (ledgerSubTab === 'front_office') {
+        const matchesFrontOffice = item.category === 'Booking Revenue' || item.method === 'corporate_billing';
+        if (!matchesFrontOffice) return false;
+      } else if (ledgerSubTab === 'laundry') {
+        const matchesLaundry = item.category === 'Laundry Revenue' || 
+                               (item.transaction_ref && item.transaction_ref.startsWith('LDY-')) || 
+                               (item.description && item.description.toLowerCase().includes('laundry')) ||
+                               (item.notes && item.notes.toLowerCase().includes('laundry'));
+        if (!matchesLaundry) return false;
+      } else if (ledgerSubTab === 'restaurant') {
+        const descLower = (item.description || '').toLowerCase();
+        const notesLower = (item.notes || '').toLowerCase();
+        const matchesRestaurant = item.category === 'POS Revenue' && 
+                                  (descLower.includes('outlet: restaurant') || 
+                                   descLower.includes('restaurant') || 
+                                   descLower.includes('kitchen') ||
+                                   notesLower.includes('outlet: restaurant') || 
+                                   notesLower.includes('restaurant') || 
+                                   notesLower.includes('kitchen') ||
+                                   notesLower.includes('restaurant_order:'));
+        if (!matchesRestaurant) return false;
+      } else if (ledgerSubTab === 'bar') {
+        const descLower = (item.description || '').toLowerCase();
+        const notesLower = (item.notes || '').toLowerCase();
+        const matchesBar = item.category === 'POS Revenue' && 
+                           (descLower.includes('outlet: bar') || 
+                            descLower.includes('bar') || 
+                            notesLower.includes('outlet: bar') || 
+                            notesLower.includes('bar'));
+        if (!matchesBar) return false;
+      }
+
+      // 2. Search / Type / Date Filters
       const matchesSearch = (item.description || '').toLowerCase().includes(ledgerSearch.toLowerCase()) || 
                             (item.category || '').toLowerCase().includes(ledgerSearch.toLowerCase()) ||
                             (item.method || '').toLowerCase().includes(ledgerSearch.toLowerCase());
@@ -3121,6 +3161,28 @@ const AdminAccounting = () => {
             >
               <Download size={16} /> Export CSV Ledger
             </button>
+          </div>
+
+          <div className="flex gap-2 px-5 py-3 border-b border-dark-700/50 bg-dark-800/40 select-none overflow-x-auto no-scrollbar">
+            {[
+              { id: 'all', name: 'General Unified Ledger' },
+              { id: 'front_office', name: 'Front Office' },
+              { id: 'laundry', name: 'Laundry' },
+              { id: 'restaurant', name: 'Restaurant' },
+              { id: 'bar', name: 'Bar' }
+            ].map(sub => (
+              <button
+                key={sub.id}
+                onClick={() => setLedgerSubTab(sub.id)}
+                className={`py-1.5 px-4 rounded-xl text-xs font-bold transition-all ${
+                  ledgerSubTab === sub.id
+                    ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                    : 'bg-dark-900/60 text-gray-400 hover:text-white border border-dark-700/60'
+                }`}
+              >
+                {sub.name}
+              </button>
+            ))}
           </div>
 
           <div className="overflow-x-auto">

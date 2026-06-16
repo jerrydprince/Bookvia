@@ -496,6 +496,134 @@ app.post('/api/attendance/terminal-push', async (req, res) => {
   }
 });
 
+// Secure SMS Send Gateway API Proxy
+app.post('/api/sms/send', async (req, res) => {
+  const { to, message } = req.body;
+  if (!to || !message) {
+    return res.status(400).json({ error: 'Missing to or message in request body' });
+  }
+
+  // Load SMS settings from system_settings
+  let gateway = 'mock';
+  let termiiKey = '';
+  let termiiSender = 'Sparkles';
+  let twilioSid = '';
+  let twilioToken = '';
+  let twilioFrom = '';
+
+  try {
+    const { data: settings, error } = await supabase
+      .from('system_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', [
+        'sms_gateway',
+        'sms_termii_api_key',
+        'sms_termii_sender_id',
+        'sms_twilio_account_sid',
+        'sms_twilio_auth_token',
+        'sms_twilio_from_number'
+      ]);
+
+    if (!error && settings) {
+      const sMap = settings.reduce((acc, curr) => {
+        acc[curr.setting_key] = curr.setting_value;
+        return acc;
+      }, {});
+      gateway = sMap.sms_gateway || 'mock';
+      termiiKey = sMap.sms_termii_api_key || '';
+      termiiSender = sMap.sms_termii_sender_id || 'Sparkles';
+      twilioSid = sMap.sms_twilio_account_sid || '';
+      twilioToken = sMap.sms_twilio_auth_token || '';
+      twilioFrom = sMap.sms_twilio_from_number || '';
+    }
+  } catch (dbErr) {
+    console.warn("Failed to load SMS settings from DB: ", dbErr.message);
+  }
+
+  // Normalize phone numbers to include international code, stripping optional lead symbols
+  let normalizedPhone = to.trim();
+  if (normalizedPhone.startsWith('0') && normalizedPhone.length === 11) {
+    normalizedPhone = '234' + normalizedPhone.slice(1);
+  } else if (normalizedPhone.startsWith('+')) {
+    normalizedPhone = normalizedPhone.slice(1);
+  }
+
+  console.log(`[SMS Gateway proxy] Route selected: "${gateway}" to recipient: "${normalizedPhone}"`);
+
+  if (gateway === 'termii') {
+    if (!termiiKey) {
+      return res.status(500).json({ error: 'Termii API Key is not configured in settings.' });
+    }
+    try {
+      const response = await fetch('https://api.ng.termii.com/api/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: normalizedPhone,
+          from: termiiSender,
+          sms: message,
+          type: 'plain',
+          channel: 'generic',
+          api_key: termiiKey
+        })
+      });
+      const data = await response.json();
+      if (response.ok && (data.message === 'Successfully Sent' || data.code === 'ok')) {
+        return res.json({ success: true, messageId: data.message_id || 'termii_' + Date.now() });
+      } else {
+        return res.status(500).json({ error: data.message || 'Termii SMS API failed to accept message', details: data });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: 'Termii API dispatch error: ' + err.message });
+    }
+  } else if (gateway === 'twilio') {
+    if (!twilioSid || !twilioToken || !twilioFrom) {
+      return res.status(500).json({ error: 'Twilio SID, Token, or From number is not configured in settings.' });
+    }
+    try {
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
+      const authHeader = 'Basic ' + Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+      const bodyParams = new URLSearchParams();
+      const formattedTo = normalizedPhone.startsWith('+') ? normalizedPhone : '+' + normalizedPhone;
+      bodyParams.append('To', formattedTo);
+      bodyParams.append('From', twilioFrom);
+      bodyParams.append('Body', message);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: bodyParams.toString()
+      });
+      const data = await response.json();
+      if (response.ok) {
+        return res.json({ success: true, messageId: data.sid });
+      } else {
+        return res.status(500).json({ error: data.message || 'Twilio SMS API failed', details: data });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: 'Twilio API dispatch error: ' + err.message });
+    }
+  } else {
+    // Mock sandbox simulator mode
+    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      await supabase.from('notification_logs').insert([{
+        recipient: normalizedPhone,
+        channel: 'sms',
+        template_name: 'Mock SMS Notification',
+        status: 'sent',
+        error_message: 'Simulated sandbox SMS delivery.'
+      }]);
+    } catch (e) {
+      console.warn("Could not log mock SMS notification:", e.message);
+    }
+    return res.json({ success: true, simulated: true, messageId: 'mock_' + Date.now() });
+  }
+});
+
 // Admin Route Example
 app.get('/api/admin/bookings', checkRole('admin'), (req, res) => {
   res.json({ message: 'Welcome Admin. Here are the bookings.' });

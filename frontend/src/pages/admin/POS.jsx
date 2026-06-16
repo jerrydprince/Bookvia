@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useRealtimeSync } from '../../lib/useRealtimeSync';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { 
   ShoppingCart, Coffee, Utensils, Wine, Plus, Minus, Trash2, 
   Search, Printer, DollarSign, Users, CheckCircle, CreditCard, 
-  Lock, Settings, PlusCircle, ChefHat, X, Percent, Clock, Archive
+  Lock, Settings, PlusCircle, ChefHat, X, Percent, Clock, Archive,
+  AlertTriangle
 } from 'lucide-react';
 import StoreRequisitionModal from '../../components/admin/StoreRequisitionModal';
 
 const POS = () => {
   const { user, profile, hasAccess } = useAuth();
+  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   
   // States
   const [services, setServices] = useState([]);
@@ -56,6 +59,11 @@ const POS = () => {
   const [isCloseOfDayModalOpen, setIsCloseOfDayModalOpen] = useState(false);
   const [closeOfDayReport, setCloseOfDayReport] = useState(null);
   const [isCompilingCloseOfDay, setIsCompilingCloseOfDay] = useState(false);
+
+  const isOutletClosed = useMemo(() => {
+    if (!outlet) return false;
+    return departmentalClosures.some(c => c.department === outlet && c.business_date === todayStr);
+  }, [departmentalClosures, outlet, todayStr]);
 
   // Unified Order History State
   const [posView, setPosView] = useState('order'); // 'order' or 'history'
@@ -102,6 +110,9 @@ const POS = () => {
 
   const handleUpdateItem = async (e) => {
     e.preventDefault();
+    if (isOutletClosed) {
+      return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+    }
     if (!isManagerOrAdmin) return toast.error("Unauthorized.");
     if (!editFormData.name || !editFormData.base_price_ngn || Number(editFormData.base_price_ngn) <= 0) {
       return toast.error("Please fill in valid name and price");
@@ -132,6 +143,9 @@ const POS = () => {
   };
 
   const handleDeleteItem = async () => {
+    if (isOutletClosed) {
+      return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+    }
     if (!isManagerOrAdmin) return toast.error("Unauthorized.");
     if (!window.confirm(`Are you sure you want to delete "${editingService.name}"? This cannot be undone.`)) return;
 
@@ -174,6 +188,15 @@ const POS = () => {
       fetchClosures();
     }
   }, [hasAccessToAny]);
+
+  useRealtimeSync(['bookings', 'services', 'system_settings'], (table) => {
+    if (hasAccessToAny) {
+      fetchPOSData(false);
+      if (table === 'system_settings') {
+        fetchClosures();
+      }
+    }
+  });
 
   const fetchClosures = async () => {
     try {
@@ -477,8 +500,8 @@ const POS = () => {
     }
   };
 
-  const fetchPOSData = async () => {
-    setLoading(true);
+  const fetchPOSData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       // Fetch dynamic contact settings, services, and checked-in guests in parallel
       const [settingsRes, servicesRes, guestsRes] = await Promise.all([
@@ -549,6 +572,10 @@ const POS = () => {
 
   // Cart operations
   const addToCart = (product) => {
+    if (isOutletClosed) {
+      toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+      return;
+    }
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
       setCart(cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
@@ -559,6 +586,10 @@ const POS = () => {
   };
 
   const updateQuantity = (id, delta) => {
+    if (isOutletClosed) {
+      toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+      return;
+    }
     setCart(cart.map(item => {
       if (item.id === id) {
         const newQty = item.quantity + delta;
@@ -569,6 +600,10 @@ const POS = () => {
   };
 
   const removeFromCart = (id) => {
+    if (isOutletClosed) {
+      toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+      return;
+    }
     setCart(cart.filter(item => item.id !== id));
     toast.success("Item removed from cart");
   };
@@ -585,6 +620,9 @@ const POS = () => {
   // Add dynamic menu item handler (Comments requirement)
   const handleAddCustomItem = async (e) => {
     e.preventDefault();
+    if (isOutletClosed) {
+      return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+    }
     if (!isManagerOrAdmin) {
       return toast.error("Unauthorized. Only managers and admins can add catalog items.");
     }
@@ -621,6 +659,9 @@ const POS = () => {
 
   // Checkout Execution
   const handleCheckout = async () => {
+    if (isOutletClosed) {
+      return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+    }
     if (cart.length === 0) {
       return toast.error("Your cart is empty");
     }
@@ -772,6 +813,18 @@ const POS = () => {
 
   return (
     <div className="min-h-screen pb-12">
+      {isOutletClosed && (
+        <div className="bg-red-500/10 border-2 border-red-500/35 text-red-200 p-4 rounded-xl flex items-center gap-4 shadow-lg shadow-red-500/5 animate-pulse mb-6">
+          <AlertTriangle size={24} className="text-red-500 animate-bounce flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="font-extrabold text-sm uppercase tracking-wider text-white">{outlet === 'bar' ? 'Bar' : 'Restaurant'} Ledger Closed for Today</h4>
+            <p className="text-xs text-red-300/95 mt-0.5 font-medium">
+              All {outlet === 'bar' ? 'Bar' : 'Restaurant'} operations including cart item additions, service menu modifications, custom F&B creations, and payment checkouts (walk-in and suite charges) are locked. Contact an authorized manager to re-open the ledger.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header & Outlet Tabs */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6 print:hidden">
         <div>
@@ -971,11 +1024,13 @@ const POS = () => {
             {isManagerOrAdmin && (
               <button 
                 onClick={() => {
+                  if (isOutletClosed) return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
                   setNewService({ ...newService, outlet });
                   setIsAddModalOpen(true);
                 }}
-                className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white px-5 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 shadow-md"
-                title="Add a new F&B menu item to the catalog"
+                disabled={isOutletClosed}
+                className={`border text-brand-400 hover:text-white px-5 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 shadow-md ${isOutletClosed ? 'bg-dark-700/50 border-dark-600/30 text-gray-500 cursor-not-allowed opacity-50 hover:bg-dark-700/50' : 'bg-brand-500/10 hover:bg-brand-500 border-brand-500/20'}`}
+                title={isOutletClosed ? `${outlet === 'bar' ? 'Bar' : 'Restaurant'} is closed` : "Add a new F&B menu item to the catalog"}
               >
                 <PlusCircle size={20} />
                 <span className="hidden md:inline">Add Menu Item</span>
@@ -997,8 +1052,13 @@ const POS = () => {
               <p className="text-gray-500 text-sm mb-4">There are no food or beverage items registered under this outlet filter.</p>
               {isManagerOrAdmin && (
                 <button 
-                  onClick={() => { setNewService({ ...newService, outlet }); setIsAddModalOpen(true); }}
-                  className="btn-primary px-6 py-2.5 rounded-xl font-bold"
+                  onClick={() => {
+                    if (isOutletClosed) return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+                    setNewService({ ...newService, outlet });
+                    setIsAddModalOpen(true);
+                  }}
+                  disabled={isOutletClosed}
+                  className={`px-6 py-2.5 rounded-xl font-bold ${isOutletClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed opacity-50' : 'btn-primary'}`}
                 >
                   Create First Item
                 </button>
@@ -1009,8 +1069,14 @@ const POS = () => {
               {filteredProducts.map(product => (
                 <div 
                   key={product.id}
-                  onClick={() => addToCart(product)}
-                  className="glass-panel border border-dark-700/40 hover:border-brand-500/40 p-5 rounded-2xl cursor-pointer hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between h-48 group relative overflow-hidden"
+                  onClick={() => {
+                    if (isOutletClosed) {
+                      toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+                      return;
+                    }
+                    addToCart(product);
+                  }}
+                  className={`glass-panel border p-5 rounded-2xl transition-all duration-300 flex flex-col justify-between h-48 group relative overflow-hidden ${isOutletClosed ? 'border-dark-700/20 opacity-60 cursor-not-allowed' : 'border-dark-700/40 hover:border-brand-500/40 cursor-pointer hover:shadow-2xl hover:-translate-y-0.5'}`}
                 >
                   <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/5 rounded-bl-full group-hover:bg-brand-500/10 transition-colors duration-300" />
                   <div>
@@ -1021,8 +1087,15 @@ const POS = () => {
                       <div className="flex items-center gap-2">
                         {isManagerOrAdmin && (
                           <button 
-                            onClick={(e) => handleOpenEditModal(e, product)}
-                            className="p-1.5 bg-dark-800 hover:bg-brand-500 hover:text-white rounded-lg text-gray-400 transition-all shadow-sm z-10"
+                            onClick={(e) => {
+                              if (isOutletClosed) {
+                                e.stopPropagation();
+                                return toast.error(`${outlet === 'bar' ? 'Bar' : 'Restaurant'} operations are locked due to daily ledger closure.`);
+                              }
+                              handleOpenEditModal(e, product);
+                            }}
+                            disabled={isOutletClosed}
+                            className={`p-1.5 rounded-lg text-gray-400 transition-all shadow-sm z-10 ${isOutletClosed ? 'bg-dark-800 opacity-50 cursor-not-allowed' : 'bg-dark-800 hover:bg-brand-500 hover:text-white'}`}
                             title="Manage menu item"
                           >
                             <Settings size={14} />
@@ -1113,14 +1186,16 @@ const POS = () => {
               <div className="grid grid-cols-2 gap-2 bg-dark-800 p-1 rounded-xl border border-dark-700/50">
                 <button 
                   onClick={() => setBillingMode('walk-in')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${billingMode === 'walk-in' ? 'bg-dark-900 text-white border border-dark-700' : 'text-gray-400 hover:text-white'}`}
+                  disabled={isOutletClosed}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${isOutletClosed ? 'cursor-not-allowed text-gray-500' : ''} ${billingMode === 'walk-in' ? 'bg-dark-900 text-white border border-dark-700' : 'text-gray-400 hover:text-white'}`}
                 >
                   <DollarSign size={14} />
                   Walk-In
                 </button>
                 <button 
                   onClick={() => setBillingMode('room')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${billingMode === 'room' ? 'bg-dark-900 text-white border border-dark-700' : 'text-gray-400 hover:text-white'}`}
+                  disabled={isOutletClosed}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${isOutletClosed ? 'cursor-not-allowed text-gray-500' : ''} ${billingMode === 'room' ? 'bg-dark-900 text-white border border-dark-700' : 'text-gray-400 hover:text-white'}`}
                 >
                   <Users size={14} />
                   Charge to Room
@@ -1247,8 +1322,8 @@ const POS = () => {
           {/* Complete Button */}
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || isProcessing}
-            className="w-full bg-gradient-to-tr from-brand-600 to-brand-400 hover:from-brand-500 hover:to-brand-300 disabled:from-dark-800 disabled:to-dark-800 disabled:text-gray-500 text-white font-bold py-3 px-4 rounded-xl mt-6 transition-all duration-300 shadow-lg flex items-center justify-center gap-2"
+            disabled={cart.length === 0 || isProcessing || isOutletClosed}
+            className="w-full bg-gradient-to-tr from-brand-600 to-brand-400 hover:from-brand-500 hover:to-brand-300 disabled:from-dark-800 disabled:to-dark-800 disabled:text-gray-500 text-white font-bold py-3 px-4 rounded-xl mt-6 transition-all duration-300 shadow-lg flex items-center justify-center gap-2 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
               <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white" />

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useRealtimeSync } from '../../lib/useRealtimeSync';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { 
-  ChefHat, Utensils, Clock, CheckCircle, AlertCircle, 
+  ChefHat, Utensils, Clock, CheckCircle, AlertCircle, AlertTriangle,
   Users, DollarSign, Search, X, Check, ArrowRight, BookOpen, ShoppingBag, Plus
 } from 'lucide-react';
 
@@ -67,6 +68,18 @@ const RestaurantKitchen = () => {
   const [closeOfDayReport, setCloseOfDayReport] = useState(null);
   const [isCompilingCloseOfDay, setIsCompilingCloseOfDay] = useState(false);
 
+  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const isRestaurantClosed = useMemo(() => {
+    return departmentalClosures.some(c => c.department === 'restaurant' && c.business_date === todayStr);
+  }, [departmentalClosures, todayStr]);
+
+  useRealtimeSync(['booking_services', 'system_settings'], (table) => {
+    fetchOrders();
+    if (table === 'system_settings') {
+      fetchClosures();
+    }
+  });
+
   // Food Menu Management state
   const [menuItems, setMenuItems] = useState([]);
   const [menuLoading, setMenuLoading] = useState(false);
@@ -101,18 +114,6 @@ const RestaurantKitchen = () => {
   useEffect(() => {
     fetchOrders();
     fetchClosures();
-
-    // Set up realtime channel
-    const channel = supabase
-      .channel('restaurant-kitchen-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_services' }, () => {
-        fetchOrders();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
   useEffect(() => {
@@ -143,6 +144,9 @@ const RestaurantKitchen = () => {
 
   const handleSaveMenuItem = async (e) => {
     e.preventDefault();
+    if (isRestaurantClosed) {
+      return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+    }
     if (!menuForm.name.trim() || !menuForm.base_price_ngn) {
       return toast.error("Please enter a name and base price.");
     }
@@ -197,6 +201,9 @@ const RestaurantKitchen = () => {
   };
 
   const handleToggleMenuStatus = async (item) => {
+    if (isRestaurantClosed) {
+      return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+    }
     const newStatus = !item.is_active;
     const toastId = toast.loading(`${newStatus ? 'Activating' : 'Deactivating'} "${item.name}"...`);
     try {
@@ -452,6 +459,9 @@ const RestaurantKitchen = () => {
 
   // Status handlers
   const handlePostToKitchen = async (orderId) => {
+    if (isRestaurantClosed) {
+      return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+    }
     try {
       const { error } = await supabase
         .from('booking_services')
@@ -478,6 +488,9 @@ const RestaurantKitchen = () => {
   // Submit ready status from kitchen
   const handleMarkReady = async (e) => {
     e.preventDefault();
+    if (isRestaurantClosed) {
+      return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+    }
     if (!chefPrice || Number(chefPrice) <= 0) {
       return toast.error('Please enter a valid final meal price');
     }
@@ -546,6 +559,9 @@ const RestaurantKitchen = () => {
 
   // Deliver and process billing
   const handleConfirmDelivery = async () => {
+    if (isRestaurantClosed) {
+      return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+    }
     setIsSubmittingBilling(true);
     try {
       const booking = selectedOrder.bookings;
@@ -778,6 +794,18 @@ const RestaurantKitchen = () => {
 
   return (
     <div className="min-h-screen pb-12 text-white">
+      {isRestaurantClosed && (
+        <div className="bg-red-500/10 border-2 border-red-500/35 text-red-200 p-4 rounded-xl flex items-center gap-4 shadow-lg shadow-red-500/5 animate-pulse mb-6">
+          <AlertTriangle size={24} className="text-red-500 animate-bounce flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="font-extrabold text-sm uppercase tracking-wider text-white">Restaurant & Kitchen Operations Locked</h4>
+            <p className="text-xs text-red-300/95 mt-0.5 font-medium">
+              All restaurant and kitchen operations including kitchen ticket completions, order preparations dispatches, status checkmarks, cooking progress checks, and food catalog configuration adjustments are locked. Contact an authorized manager to re-open the ledger.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -941,7 +969,8 @@ const RestaurantKitchen = () => {
 
                           <button
                             onClick={() => handlePostToKitchen(order.id)}
-                            className="bg-brand-500 hover:bg-brand-600 text-dark-950 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                            disabled={isRestaurantClosed}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${isRestaurantClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed opacity-50' : 'bg-brand-500 hover:bg-brand-600 text-dark-950 active:scale-95'}`}
                           >
                             <span>Post to Kitchen</span>
                             <ArrowRight size={14} />
@@ -1036,7 +1065,8 @@ const RestaurantKitchen = () => {
 
                           <button
                             onClick={() => openBillingModal(order)}
-                            className="bg-green-500 hover:bg-green-600 text-dark-950 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                            disabled={isRestaurantClosed}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${isRestaurantClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed opacity-50' : 'bg-green-500 hover:bg-green-600 text-dark-950 active:scale-95'}`}
                           >
                             <Check size={14} className="stroke-[3]" />
                             <span>Deliver & Charge</span>
@@ -1122,7 +1152,8 @@ const RestaurantKitchen = () => {
 
                     <button
                       onClick={() => openPrepModal(order)}
-                      className="bg-brand-500 hover:bg-brand-600 text-dark-950 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                      disabled={isRestaurantClosed}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${isRestaurantClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed opacity-50' : 'bg-brand-500 hover:bg-brand-600 text-dark-950 active:scale-95'}`}
                     >
                       <ChefHat size={14} />
                       <span>Prepare & Set Price</span>
@@ -1243,11 +1274,13 @@ const RestaurantKitchen = () => {
             
             <button 
               onClick={() => {
+                if (isRestaurantClosed) return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
                 setEditingMenuItem(null);
                 setMenuForm({ name: '', description: '', base_price_ngn: '', is_active: true, segment: 'Lunch' });
                 setIsMenuModalOpen(true);
               }} 
-              className="bg-brand-500 hover:bg-brand-600 text-dark-950 px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-lg shadow-brand-500/10"
+              disabled={isRestaurantClosed}
+              className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-lg shadow-brand-500/10 ${isRestaurantClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed opacity-50' : 'bg-brand-500 hover:bg-brand-600 text-dark-950'}`}
             >
               <Plus size={14} />
               Create Food Item
@@ -1319,6 +1352,7 @@ const RestaurantKitchen = () => {
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
+                            if (isRestaurantClosed) return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
                             const { segment: itemSeg, text: itemText } = parseDescription(item.description);
                             setEditingMenuItem(item);
                             setMenuForm({
@@ -1330,16 +1364,23 @@ const RestaurantKitchen = () => {
                             });
                             setIsMenuModalOpen(true);
                           }}
-                          className="text-gray-300 hover:text-white bg-dark-800 hover:bg-dark-750 text-[10px] font-bold py-1.5 px-3 rounded-lg border border-dark-700 transition-all"
+                          disabled={isRestaurantClosed}
+                          className={`text-[10px] font-bold py-1.5 px-3 rounded-lg border transition-all ${isRestaurantClosed ? 'bg-dark-800 text-gray-500 border-dark-700 opacity-50 cursor-not-allowed' : 'text-gray-300 hover:text-white bg-dark-800 hover:bg-dark-750 border-dark-700'}`}
                         >
                           Edit
                         </button>
                       <button
-                        onClick={() => handleToggleMenuStatus(item)}
+                        onClick={() => {
+                          if (isRestaurantClosed) return toast.error("Restaurant & Kitchen operations are locked due to daily ledger closure.");
+                          handleToggleMenuStatus(item);
+                        }}
+                        disabled={isRestaurantClosed}
                         className={`text-[10px] font-bold py-1.5 px-3 rounded-lg border transition-all ${
-                          item.is_active 
-                            ? 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20' 
-                            : 'bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20'
+                          isRestaurantClosed 
+                            ? 'bg-dark-800 text-gray-500 border-dark-700 opacity-50 cursor-not-allowed'
+                            : item.is_active 
+                              ? 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20' 
+                              : 'bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20'
                         }`}
                       >
                         {item.is_active ? 'Deactivate' : 'Activate'}

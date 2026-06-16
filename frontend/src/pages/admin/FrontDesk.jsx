@@ -615,9 +615,11 @@ const AdminFrontDesk = () => {
   };
 
   // Real-time Postgres changes channel subscription using custom sync hook
-  useRealtimeSync(['bookings', 'rooms', 'housekeeping_tasks', 'booking_services'], (table) => {
+  useRealtimeSync(['bookings', 'rooms', 'housekeeping_tasks', 'booking_services', 'system_settings'], (table) => {
     fetchFrontDeskData(false);
-    if (table === 'bookings') {
+    if (table === 'system_settings') {
+      fetchClosures();
+    } else if (table === 'bookings') {
       if (activeTab === 'calendar') fetchCalendarData();
       if (activeTab === 'visitors') fetchVisitors();
     } else if (table === 'rooms') {
@@ -2380,10 +2382,24 @@ const AdminFrontDesk = () => {
     }
   };
 
+  const todayStr = format(currentTime || new Date(), 'yyyy-MM-dd');
+  const isFrontOfficeClosed = departmentalClosures.some(c => c.department === 'front_office' && c.business_date === todayStr);
+
   const occupancyRate = stats.totalRooms === 0 ? 0 : Math.round((stats.occupiedRooms / stats.totalRooms) * 100);
 
   return (
     <div className="space-y-6 pb-20">
+      {isFrontOfficeClosed && (
+        <div className="bg-red-500/10 border-2 border-red-500/35 text-red-200 p-4 rounded-xl flex items-center gap-4 shadow-lg shadow-red-500/5 animate-pulse">
+          <AlertTriangle size={24} className="text-red-500 animate-bounce flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="font-extrabold text-sm uppercase tracking-wider text-white">Front Office Ledger Closed for Today</h4>
+            <p className="text-xs text-red-300/95 mt-0.5 font-medium">
+              All front office operations including suite bookings, stay transfers, guest check-ins/check-outs, and guest wallet operations are locked. Contact a super admin, admin or hotel manager to re-open the daily ledger.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Header Panel */}
       <div className="bg-dark-800 border border-dark-700 p-6 shadow-sm flex flex-col md:flex-row justify-between items-center rounded-lg">
         <div>
@@ -2400,22 +2416,34 @@ const AdminFrontDesk = () => {
             </button>
           )}
           <button 
-            onClick={() => setIsActivateWalletOpen(true)} 
-            className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow"
+            onClick={() => {
+              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+              setIsActivateWalletOpen(true);
+            }} 
+            disabled={isFrontOfficeClosed}
+            className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Wallet size={16}/>
             <span>Activate Guest Wallet</span>
           </button>
           <button 
-            onClick={() => setIsAddGroupOpen(true)} 
-            className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow"
+            onClick={() => {
+              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+              setIsAddGroupOpen(true);
+            }} 
+            disabled={isFrontOfficeClosed}
+            className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Users size={16}/>
             <span>New Group Account</span>
           </button>
           <button 
-            onClick={() => setIsNoShowSweepOpen(true)}
-            className={`relative py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow ${
+            onClick={() => {
+              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+              setIsNoShowSweepOpen(true);
+            }}
+            disabled={isFrontOfficeClosed}
+            className={`relative py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow disabled:opacity-40 disabled:cursor-not-allowed ${
               noShowBookings.length > 0
                 ? 'bg-amber-500/10 hover:bg-amber-500 border border-amber-500/30 text-amber-400 hover:text-dark-900'
                 : 'bg-dark-700 hover:bg-dark-600 border border-dark-600 text-gray-300'
@@ -2447,7 +2475,14 @@ const AdminFrontDesk = () => {
               </button>
             );
           })()}
-          <button onClick={() => setIsNewBookingModalOpen(true)} className="btn-primary py-2 px-4 flex items-center gap-2 mr-4">
+          <button 
+            onClick={() => {
+              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+              setIsNewBookingModalOpen(true);
+            }} 
+            disabled={isFrontOfficeClosed}
+            className="btn-primary py-2 px-4 flex items-center gap-2 mr-4 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <Plus size={18}/> New Booking
           </button>
           <div className="text-right">
@@ -2566,16 +2601,26 @@ const AdminFrontDesk = () => {
                       </div>
                       <div className="flex gap-2">
                         <button 
-                          onClick={() => handleCancelArrivalBooking(booking.id)}
-                          className="py-1.5 px-3 text-xs rounded font-bold bg-red-500/10 hover:bg-red-500 border border-red-500/20 text-red-400 hover:text-white transition-all"
+                          onClick={() => {
+                            if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                            handleCancelArrivalBooking(booking.id);
+                          }}
+                          disabled={isFrontOfficeClosed}
+                          className="py-1.5 px-3 text-xs rounded font-bold bg-red-500/10 hover:bg-red-500 border border-red-500/20 text-red-400 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Cancel
                         </button>
                         <button 
-                          onClick={() => handleStartCheckIn(booking)}
-                          disabled={booking.status !== 'confirmed'}
-                          className={`py-1.5 px-4 text-sm rounded font-bold transition-all ${booking.status === 'confirmed' ? 'btn-primary' : 'bg-dark-700 text-gray-500 cursor-not-allowed border border-dark-600'}`}
-                          title={booking.status !== 'confirmed' ? 'Booking must be confirmed before check-in' : ''}
+                          onClick={() => {
+                            if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                            handleStartCheckIn(booking);
+                          }}
+                          disabled={booking.status !== 'confirmed' || isFrontOfficeClosed}
+                          className={`py-1.5 px-4 text-sm rounded font-bold transition-all ${
+                            isFrontOfficeClosed ? 'bg-dark-700 text-gray-500 cursor-not-allowed border border-dark-600' :
+                            booking.status === 'confirmed' ? 'btn-primary' : 'bg-dark-700 text-gray-500 cursor-not-allowed border border-dark-600'
+                          }`}
+                          title={isFrontOfficeClosed ? 'Front Office is closed' : booking.status !== 'confirmed' ? 'Booking must be confirmed before check-in' : ''}
                         >
                           Start Check-In
                         </button>
@@ -2611,8 +2656,12 @@ const AdminFrontDesk = () => {
                         </p>
                       </div>
                       <button 
-                        onClick={() => setActiveCheckOut(booking)}
-                        className="bg-dark-600 text-white hover:bg-dark-500 py-1.5 px-4 text-sm rounded transition-colors"
+                        onClick={() => {
+                          if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                          setActiveCheckOut(booking);
+                        }}
+                        disabled={isFrontOfficeClosed}
+                        className="bg-dark-600 text-white hover:bg-dark-500 py-1.5 px-4 text-sm rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {booking.payment_status === 'paid' ? 'Mark as Checked Out' : 'Process Check-Out'}
                       </button>
@@ -2674,16 +2723,44 @@ const AdminFrontDesk = () => {
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap">
-                          <button onClick={() => setTransferBooking(booking)} className="text-amber-500 hover:text-amber-400 text-sm font-medium transition-colors border border-amber-500/50 px-3 py-1 rounded flex items-center gap-1">
+                          <button 
+                            onClick={() => {
+                              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                              setTransferBooking(booking);
+                            }} 
+                            disabled={isFrontOfficeClosed}
+                            className="text-amber-500 hover:text-amber-400 text-sm font-medium transition-colors border border-amber-500/50 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
                             <ArrowRightLeft size={14} /> Transfer Room
                           </button>
-                          <button onClick={() => handleOpenAddService(booking)} className="text-purple-400 hover:text-purple-300 text-sm font-medium transition-colors border border-purple-500/50 px-3 py-1 rounded flex items-center gap-1">
+                          <button 
+                            onClick={() => {
+                              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                              handleOpenAddService(booking);
+                            }} 
+                            disabled={isFrontOfficeClosed}
+                            className="text-purple-400 hover:text-purple-300 text-sm font-medium transition-colors border border-purple-500/50 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
                             <Package size={14} /> Add Service
                           </button>
-                          <button onClick={() => setActiveVisitorRegistration(booking)} className="text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors border border-brand-500/50 px-3 py-1 rounded">
+                          <button 
+                            onClick={() => {
+                              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                              setActiveVisitorRegistration(booking);
+                            }} 
+                            disabled={isFrontOfficeClosed}
+                            className="text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors border border-brand-500/50 px-3 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
                             Add Visitor
                           </button>
-                          <button onClick={() => setActiveCheckOut(booking)} className="text-gray-400 hover:text-white text-sm font-medium transition-colors border border-dark-600 hover:border-gray-500 px-3 py-1 rounded">
+                          <button 
+                            onClick={() => {
+                              if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                              setActiveCheckOut(booking);
+                            }} 
+                            disabled={isFrontOfficeClosed}
+                            className="text-gray-400 hover:text-white text-sm font-medium transition-colors border border-dark-600 hover:border-gray-500 px-3 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
                             {booking.payment_status === 'paid' ? 'Mark as Checked Out' : 'Check Out'}
                           </button>
                         </div>

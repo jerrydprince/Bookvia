@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { sendResendEmail } from '../../lib/emailService';
+import { sendResendEmail, sendSMSNotification } from '../../lib/emailService';
 import { Zap, Mail, MessageSquare, Bell, Activity, Send, FileText, CheckCircle, XCircle, Trash2, Edit } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -122,11 +122,68 @@ const AdminAutomations = () => {
     fetchData();
   };
 
-  // --- TESTING EMAILS ---
+  // --- TESTING EMAILS/SMS ---
   const sendTestNotification = async (template) => {
-    if (!testEmail) return toast.error("Please enter an email address for testing");
-    if (template.channel !== 'email') return toast.error("Live testing is currently only supported for Email channels");
+    if (!testEmail) return toast.error("Please enter a recipient email address or phone number for testing");
+    if (template.channel !== 'email' && template.channel !== 'sms') {
+      return toast.error("Live testing is currently only supported for Email and SMS channels");
+    }
     
+    // Parse template body with dummy data
+    const parsedBody = template.body
+      .replace(/{{guest_name}}/g, 'Test Guest')
+      .replace(/{{booking_ref}}/g, 'WEB-999999')
+      .replace(/{{check_in}}/g, new Date().toLocaleDateString())
+      .replace(/{{check_out}}/g, new Date().toLocaleDateString())
+      .replace(/{{room_number}}/g, '101')
+      .replace(/{{room_details}}/g, 'Executive Suite')
+      .replace(/{{total_amount}}/g, '150,000')
+      .replace(/{{total_paid}}/g, '50,000')
+      .replace(/{{balance_due}}/g, '100,000')
+      .replace(/{{payment_status}}/g, 'Partial')
+      .replace(/{{payment_amount}}/g, '50,000')
+      .replace(/{{payment_ref}}/g, 'PAY-TEST-8888')
+      .replace(/{{payment_method}}/g, 'Paystack')
+      .replace(/{{payment_date}}/g, new Date().toLocaleDateString())
+      .replace(/{{invoice_number}}/g, 'INV-WEB-999999');
+
+    if (template.channel === 'sms') {
+      setIsSending(true);
+      toast.loading("Sending via SMS API...", { id: 'send' });
+      try {
+        const result = await sendSMSNotification({
+          to: testEmail,
+          message: parsedBody
+        });
+        if (result.success) {
+          toast.success(result.simulated ? "Simulated! (Check SMS gateway logs)" : "SMS sent successfully!", { id: 'send' });
+          
+          // Log to DB
+          await supabase.from('notification_logs').insert([{
+            recipient: testEmail,
+            channel: 'sms',
+            template_name: template.name,
+            status: 'sent'
+          }]);
+        } else {
+          toast.error(`Failed to send SMS: ${result.error}`, { id: 'send' });
+          
+          await supabase.from('notification_logs').insert([{
+            recipient: testEmail,
+            channel: 'sms',
+            template_name: template.name,
+            status: 'failed',
+            error_message: result.error
+          }]);
+        }
+      } catch (err) {
+        toast.error(`Failed to send: ${err.message}`, { id: 'send' });
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
     setIsSending(true);
     toast.loading("Sending via Resend API...", { id: 'send' });
 
@@ -155,24 +212,6 @@ const AdminAutomations = () => {
     } catch (e) {
       console.warn("Failed to load branding settings for test notification:", e);
     }
-
-    // Parse template body with dummy data
-    const parsedBody = template.body
-      .replace(/{{guest_name}}/g, 'Test Guest')
-      .replace(/{{booking_ref}}/g, 'WEB-999999')
-      .replace(/{{check_in}}/g, new Date().toLocaleDateString())
-      .replace(/{{check_out}}/g, new Date().toLocaleDateString())
-      .replace(/{{room_number}}/g, '101')
-      .replace(/{{room_details}}/g, 'Executive Suite')
-      .replace(/{{total_amount}}/g, '150,000')
-      .replace(/{{total_paid}}/g, '50,000')
-      .replace(/{{balance_due}}/g, '100,000')
-      .replace(/{{payment_status}}/g, 'Partial')
-      .replace(/{{payment_amount}}/g, '50,000')
-      .replace(/{{payment_ref}}/g, 'PAY-TEST-8888')
-      .replace(/{{payment_method}}/g, 'Paystack')
-      .replace(/{{payment_date}}/g, new Date().toLocaleDateString())
-      .replace(/{{invoice_number}}/g, 'INV-WEB-999999');
 
     const result = await sendResendEmail({
       to: testEmail,
@@ -292,7 +331,7 @@ const AdminAutomations = () => {
         <div>
           <div className="flex justify-between items-center mb-6">
             <div className="flex gap-4">
-              <input type="email" placeholder="Test recipient email..." value={testEmail} onChange={e => setTestEmail(e.target.value)} className="bg-dark-900 border border-dark-700 p-2 rounded text-sm text-white outline-none focus:border-brand-500 w-64"/>
+              <input type="text" placeholder="Test recipient (email/phone)..." value={testEmail} onChange={e => setTestEmail(e.target.value)} className="bg-dark-900 border border-dark-700 p-2 rounded text-sm text-white outline-none focus:border-brand-500 w-64"/>
             </div>
             <button onClick={() => { setTemplateForm({ id: null, name: '', channel: 'email', subject: '', body: '' }); setShowTemplateModal(true); }} className="bg-dark-700 hover:bg-dark-600 text-white font-bold py-2 px-4 rounded text-sm border border-dark-600 transition-colors">
               Create Template

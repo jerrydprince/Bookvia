@@ -31,8 +31,11 @@ supabase
       
       // Trigger only when a booking goes from pending -> confirmed
       if (oldRecord.status !== 'confirmed' && newRecord.status === 'confirmed') {
-        console.log(`[EVENT] Booking ${newRecord.booking_reference} confirmed! Preparing email...`);
-        await sendBookingConfirmation(newRecord);
+        console.log(`[EVENT] Booking ${newRecord.booking_reference} confirmed! Preparing notifications...`);
+        await Promise.all([
+          sendBookingConfirmation(newRecord),
+          sendBookingSMS(newRecord)
+        ]);
       }
     }
   )
@@ -124,3 +127,136 @@ async function sendBookingConfirmation(booking) {
     console.error(`[ERROR] Processing booking ${booking.id} failed:`, error);
   }
 }
+
+async function sendBookingSMS(booking) {
+  try {
+    const recipient = booking.guest_phone || booking.phone;
+    if (!recipient || recipient === 'N/A') {
+      console.log(`[SMS Worker] Skipping SMS for ${booking.booking_reference}: No recipient phone number.`);
+      return;
+    }
+
+    // Load SMS settings from system_settings
+    const { data: sysSettings, error: dbErr } = await supabase
+      .from('system_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', [
+        'sms_gateway',
+        'sms_termii_api_key',
+        'sms_termii_sender_id',
+        'sms_twilio_account_sid',
+        'sms_twilio_auth_token',
+        'sms_twilio_from_number',
+        'sms_confirmation_template'
+      ]);
+
+    if (dbErr) throw dbErr;
+
+    const sMap = sysSettings?.reduce((acc, curr) => {
+      acc[curr.setting_key] = curr.setting_value;
+      return acc;
+    }, {}) || {};
+
+    const gateway = sMap.sms_gateway || 'mock';
+    const termiiKey = sMap.sms_termii_api_key || '';
+    const termiiSender = sMap.sms_termii_sender_id || 'Sparkles';
+    const twilioSid = sMap.sms_twilio_account_sid || '';
+    const twilioToken = sMap.sms_twilio_auth_token || '';
+    const twilioFrom = sMap.sms_twilio_from_number || '';
+    const template = sMap.sms_confirmation_template || 'Hi {{guest_name}}, your booking {{booking_ref}} is confirmed!';
+
+    // Fetch room details
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('name')
+      .eq('id', booking.room_id)
+      .single();
+    const roomName = room ? room.name : 'Premium Suite';
+
+    // Interpolate message template
+    const message = template
+      .replace(/{{guest_name}}/g, booking.guest_name || 'Guest')
+      .replace(/{{booking_ref}}/g, booking.booking_reference || 'BKG-MOCK')
+      .replace(/{{check_in}}/g, booking.check_in_date || '')
+      .replace(/{{check_out}}/g, booking.check_out_date || '')
+      .replace(/{{room_number}}/g, roomName);
+
+    // Normalize phone number to include international code, stripping optional lead symbols
+    let normalizedPhone = recipient.trim();
+    if (normalizedPhone.startsWith('0') && normalizedPhone.length === 11) {
+      normalizedPhone = '234' + normalizedPhone.slice(1);
+    } else if (normalizedPhone.startsWith('+')) {
+      normalizedPhone = normalizedPhone.slice(1);
+    }
+
+    console.log(`[SMS Worker] Dispatching confirmed booking SMS via "${gateway}" to: ${normalizedPhone}`);
+
+    let sentStatus = 'failed';
+    let errorMsg = null;
+
+    if (gateway === 'termii') {
+      if (!termiiKey) throw new Error('Termii API Key is not configured in settings.');
+      const response = await fetch('https://api.ng.termii.com/api/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: normalizedPhone,
+          from: termiiSender,
+          sms: message,
+          type: 'plain',
+          channel: 'generic',
+          api_key: termiiKey
+        })
+      });
+      const data = await response.json();
+      if (response.ok && (data.message === 'Successfully Sent' || data.code === 'ok')) {
+        sentStatus = 'sent';
+      } else {
+        errorMsg = data.message || 'Termii SMS API failed to accept message';
+      }
+    } else if (gateway === 'twilio') {
+      if (!twilioSid || !twilioToken || !twilioFrom) throw new Error('Twilio credentials not configured in settings.');
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
+      const authHeader = 'Basic ' + Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+      const bodyParams = new URLSearchParams();
+      const formattedTo = normalizedPhone.startsWith('+') ? normalizedPhone : '+' + normalizedPhone;
+      bodyParams.append('To', formattedTo);
+      bodyParams.append('From', twilioFrom);
+      bodyParams.append('Body', message);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: bodyParams.toString()
+      });
+      const data = await response.json();
+      if (response.ok) {
+        sentStatus = 'sent';
+      } else {
+        errorMsg = data.message || 'Twilio SMS API failed';
+      }
+    } else {
+      // Mock Sandbox Mode
+      console.log(`[SMS Worker - Sandbox] Message: "${message}"`);
+      sentStatus = 'sent';
+    }
+
+    // Commit notification log entry
+    await supabase.from('notification_logs').insert([{
+      recipient: normalizedPhone,
+      channel: 'sms',
+      template_name: 'Confirmed Booking SMS Alert',
+      status: sentStatus,
+      error_message: errorMsg,
+      sent_at: new Date().toISOString()
+    }]);
+
+    console.log(`[SMS Worker] SMS dispatch finished. Status: ${sentStatus}`);
+  } catch (err) {
+    console.error(`[SMS Worker Error] Booking notification failed:`, err.message);
+  }
+}
+

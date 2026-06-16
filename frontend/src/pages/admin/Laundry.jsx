@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useRealtimeSync } from '../../lib/useRealtimeSync';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { 
   Shirt, Sparkles, User, Users, Plus, DollarSign, Clock, 
   CheckCircle, Search, RefreshCw, X, CreditCard, Droplets, 
-  Trash2, ShieldCheck, Phone, Mail, ArrowRight, ClipboardList
+  Trash2, ShieldCheck, Phone, Mail, ArrowRight, ClipboardList, AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -57,6 +58,13 @@ const AdminLaundry = () => {
     fetchLaundryData();
     fetchClosures();
   }, []);
+
+  useRealtimeSync(['booking_services', 'bookings', 'system_settings'], (table) => {
+    fetchLaundryData(false);
+    if (table === 'system_settings') {
+      fetchClosures();
+    }
+  });
 
   const fetchClosures = async () => {
     try {
@@ -218,8 +226,8 @@ const AdminLaundry = () => {
     }
   };
 
-  const fetchLaundryData = async () => {
-    setLoading(true);
+  const fetchLaundryData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       // 1. Fetch In-House Active Laundry Requests
       const { data: activeRequests, error: reqErr } = await supabase
@@ -554,8 +562,22 @@ const AdminLaundry = () => {
     return <div className="p-8 text-center text-gray-500">You do not have permission to access the Laundry Department.</div>;
   }
 
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const isLaundryClosed = departmentalClosures.some(c => c.department === 'laundry' && c.business_date === todayStr);
+
   return (
     <div className="space-y-6 pb-20 text-white select-none">
+      {isLaundryClosed && (
+        <div className="bg-red-500/10 border-2 border-red-500/35 text-red-200 p-4 rounded-xl flex items-center gap-4 shadow-lg shadow-red-500/5 animate-pulse">
+          <AlertTriangle size={24} className="text-red-500 animate-bounce flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="font-extrabold text-sm uppercase tracking-wider text-white">Laundry Department Ledger Closed for Today</h4>
+            <p className="text-xs text-red-300/95 mt-0.5 font-medium">
+              All laundry operations including walk-in orders, laundering pickup actions, and completing charges are locked. Contact a super admin, admin or hotel manager to re-open the daily ledger.
+            </p>
+          </div>
+        </div>
+      )}
       
       {/* Header Panel */}
       <div className="bg-dark-800 border border-dark-700 p-6 flex flex-col md:flex-row justify-between items-center rounded-xl shadow-lg">
@@ -571,8 +593,12 @@ const AdminLaundry = () => {
         <div className="mt-4 md:mt-0 flex gap-3">
           {hasAccess('Laundry - Register Walk-in Sales') && (
             <button 
-              onClick={() => setShowWalkinForm(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-lg flex items-center gap-2 transition-all shadow-lg"
+              onClick={() => {
+                if (isLaundryClosed) return toast.error("Laundry operations are locked due to daily ledger closure.");
+                setShowWalkinForm(true);
+              }}
+              disabled={isLaundryClosed}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 px-5 rounded-lg flex items-center gap-2 transition-all shadow-lg"
             >
               <Plus size={18} /> Register Walk-In Sale
             </button>
@@ -754,22 +780,34 @@ const AdminLaundry = () => {
                                 <div className="flex gap-2 justify-end">
                                   {order.status === 'pending' ? (
                                     <button 
-                                      onClick={() => handleUpdateStatus(order.id, 'in_progress')}
-                                      className="bg-blue-500 hover:bg-blue-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all"
+                                      onClick={() => {
+                                        if (isLaundryClosed) return toast.error("Laundry operations are locked due to daily ledger closure.");
+                                        handleUpdateStatus(order.id, 'in_progress');
+                                      }}
+                                      disabled={isLaundryClosed}
+                                      className="bg-blue-500 hover:bg-blue-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       Pick Up & Wash
                                     </button>
                                   ) : (
                                     <button 
-                                      onClick={() => handleOpenPostCharge(order)}
-                                      className="bg-green-500 hover:bg-green-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all flex items-center gap-1"
+                                      onClick={() => {
+                                        if (isLaundryClosed) return toast.error("Laundry operations are locked due to daily ledger closure.");
+                                        handleOpenPostCharge(order);
+                                      }}
+                                      disabled={isLaundryClosed}
+                                      className="bg-green-500 hover:bg-green-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       <CheckCircle size={13} /> Complete & Post Folio Charge
                                     </button>
                                   )}
                                   <button 
-                                    onClick={() => handleUpdateStatus(order.id, 'cancelled')}
-                                    className="bg-dark-700 hover:bg-red-500/20 hover:text-red-400 text-xs py-1.5 px-3 rounded border border-dark-600 transition-all text-gray-400"
+                                    onClick={() => {
+                                      if (isLaundryClosed) return toast.error("Laundry operations are locked due to daily ledger closure.");
+                                      handleUpdateStatus(order.id, 'cancelled');
+                                    }}
+                                    disabled={isLaundryClosed}
+                                    className="bg-dark-700 hover:bg-red-500/20 hover:text-red-400 text-xs py-1.5 px-3 rounded border border-dark-600 transition-all text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     Decline
                                   </button>
@@ -851,8 +889,12 @@ const AdminLaundry = () => {
                                 ) : (
                                   hasAccess('Laundry - Register Walk-in Sales') ? (
                                     <button 
-                                      onClick={() => handleMarkWalkinAsPaid(sale.id, sale.notes)}
-                                      className="bg-yellow-500 hover:bg-yellow-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all flex items-center gap-1.5 ml-auto"
+                                      onClick={() => {
+                                        if (isLaundryClosed) return toast.error("Laundry operations are locked due to daily ledger closure.");
+                                        handleMarkWalkinAsPaid(sale.id, sale.notes);
+                                      }}
+                                      disabled={isLaundryClosed}
+                                      className="bg-yellow-500 hover:bg-yellow-600 text-dark-950 font-extrabold text-xs py-1.5 px-3 rounded shadow transition-all flex items-center gap-1.5 ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       <CheckCircle size={12} /> Settle & Settle clothes
                                     </button>
