@@ -310,6 +310,154 @@ else if ($route === 'email/send') {
         }
     }
 }
+else if ($route === 'sms/send') {
+    // Get POST data
+    $input = file_get_contents('php://input');
+    $postData = json_decode($input, true);
+    
+    $to = isset($postData['to']) ? trim($postData['to']) : '';
+    $message = isset($postData['message']) ? trim($postData['message']) : '';
+    
+    if (!$to || !$message) {
+        http_response_code(400);
+        echo json_encode(["error" => "Missing required fields (to, message)"]);
+        exit;
+    }
+    
+    // Fetch system settings
+    $settings = get_supabase_settings();
+    $gateway = isset($settings['sms_gateway']) ? $settings['sms_gateway'] : 'mock';
+    $termiiKey = isset($settings['sms_termii_api_key']) ? $settings['sms_termii_api_key'] : '';
+    $termiiSender = isset($settings['sms_termii_sender_id']) ? $settings['sms_termii_sender_id'] : 'Sparkles';
+    $twilioSid = isset($settings['sms_twilio_account_sid']) ? $settings['sms_twilio_account_sid'] : '';
+    $twilioToken = isset($settings['sms_twilio_auth_token']) ? $settings['sms_twilio_auth_token'] : '';
+    $twilioFrom = isset($settings['sms_twilio_from_number']) ? $settings['sms_twilio_from_number'] : '';
+    
+    // Normalize phone numbers to include international code
+    $normalizedPhone = $to;
+    if (strpos($normalizedPhone, '0') === 0 && strlen($normalizedPhone) === 11) {
+        $normalizedPhone = '234' . substr($normalizedPhone, 1);
+    } else if (strpos($normalizedPhone, '+') === 0) {
+        $normalizedPhone = substr($normalizedPhone, 1);
+    }
+    
+    if ($gateway === 'termii') {
+        if (!$termiiKey) {
+            http_response_code(500);
+            echo json_encode(["error" => "Termii API Key is not configured in settings."]);
+            exit;
+        }
+        
+        $url = 'https://api.ng.termii.com/api/sms/send';
+        $payload = [
+            "to" => $normalizedPhone,
+            "from" => $termiiSender,
+            "sms" => $message,
+            "type" => "plain",
+            "channel" => "generic",
+            "api_key" => $termiiKey
+        ];
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        $data = json_decode($response, true);
+        if ($httpCode >= 200 && $httpCode < 300 && $data && (isset($data['message']) && ($data['message'] === 'Successfully Sent' || (isset($data['code']) && $data['code'] === 'ok')))) {
+            http_response_code(200);
+            echo json_encode(["success" => true, "messageId" => isset($data['message_id']) ? $data['message_id'] : 'termii_' . time()]);
+            exit;
+        } else {
+            http_response_code(500);
+            echo json_encode([
+                "error" => isset($data['message']) ? $data['message'] : 'Termii SMS API failed to accept message',
+                "details" => $data
+            ]);
+            exit;
+        }
+    } 
+    else if ($gateway === 'twilio') {
+        if (!$twilioSid || !$twilioToken || !$twilioFrom) {
+            http_response_code(500);
+            echo json_encode(["error" => "Twilio SID, Token, or From number is not configured in settings."]);
+            exit;
+        }
+        
+        $url = "https://api.twilio.com/2010-04-01/Accounts/{$twilioSid}/Messages.json";
+        $formattedTo = strpos($normalizedPhone, '+') === 0 ? $normalizedPhone : '+' . $normalizedPhone;
+        $fields = [
+            'To' => $formattedTo,
+            'From' => $twilioFrom,
+            'Body' => $message
+        ];
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERPWD, "$twilioSid:$twilioToken");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($fields));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        $data = json_decode($response, true);
+        if ($httpCode >= 200 && $httpCode < 300 && isset($data['sid'])) {
+            http_response_code(200);
+            echo json_encode(["success" => true, "messageId" => $data['sid']]);
+            exit;
+        } else {
+            http_response_code(500);
+            echo json_encode([
+                "error" => isset($data['message']) ? $data['message'] : 'Twilio SMS API failed',
+                "details" => $data
+            ]);
+            exit;
+        }
+    } 
+    else {
+        // Mock sandbox simulator mode
+        $supabaseUrl = 'https://pjmdlifojfwoviyugjwq.supabase.co';
+        $anonKey = 'sb_publishable_Cd0GkjlGkIfFUJ0IR2etLA_IxImAYU9';
+        
+        $logPayload = [[
+            "recipient" => $normalizedPhone,
+            "channel" => "sms",
+            "template_name" => "Mock SMS Notification",
+            "status" => "sent",
+            "error_message" => "Simulated sandbox SMS delivery."
+        ]];
+        
+        $url = $supabaseUrl . '/rest/v1/notification_logs';
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'apikey: ' . $anonKey,
+            'Authorization: Bearer ' . $anonKey,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($logPayload));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_exec($ch);
+        curl_close($ch);
+        
+        http_response_code(200);
+        echo json_encode(["success" => true, "simulated" => true, "messageId" => 'mock_' . time()]);
+        exit;
+    }
+}
 else if ($route === 'contact/submit') {
     // Get POST data
     $input = file_get_contents('php://input');

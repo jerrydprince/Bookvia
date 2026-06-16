@@ -15,6 +15,7 @@ const TRIGGERS = [
   { id: 'booking_created', name: 'On Booking Creation' },
   { id: 'check_in_1day', name: '24 Hours Before Check-in' },
   { id: 'checkout', name: 'On Checkout' },
+  { id: 'check_out_1day', name: '24 Hours Before Check-out' },
   { id: 'payment_overdue', name: 'Payment Overdue' },
   { id: 'review_request', name: '3 Days After Checkout (Review)' }
 ];

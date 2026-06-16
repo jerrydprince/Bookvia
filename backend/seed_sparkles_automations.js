@@ -159,6 +159,18 @@ Accounts Department, Sparkles Apartments`
     channel: 'sms',
     subject: null,
     body: 'Hi {{guest_name}}, your stay at Sparkles Apartments begins tomorrow! Check-in is at 2:00 PM. See you soon!'
+  },
+  {
+    name: 'Checkout Reminder (SMS)',
+    channel: 'sms',
+    subject: null,
+    body: 'Hi {{guest_name}}, this is a reminder that check-out for Room {{room_number}} is tomorrow at 11:00 AM. Thank you for staying with us!'
+  },
+  {
+    name: 'Appreciation (SMS)',
+    channel: 'sms',
+    subject: null,
+    body: 'Dear {{guest_name}}, thank you for staying at Sparkles Apartments. We appreciate your patronage and hope to host you again soon!'
   }
 ];
 
@@ -170,7 +182,9 @@ const rulesMapping = [
   { name: 'Send Checkout Summary Email', trigger: 'checkout', templateName: 'Checkout Summary Email' },
   { name: 'Send Payment Receipt Email', trigger: 'payment_received', templateName: 'Payment Receipt Email' },
   { name: 'Send Booking Invoice Email', trigger: 'invoice_issued', templateName: 'Booking Invoice Email' },
-  { name: 'Send Check-in SMS 24hr Before', trigger: 'check_in_1day', templateName: 'Check-in Reminder (SMS)' }
+  { name: 'Send Check-in SMS 24hr Before', trigger: 'check_in_1day', templateName: 'Check-in Reminder (SMS)' },
+  { name: 'Send Checkout SMS Reminder', trigger: 'check_out_1day', templateName: 'Checkout Reminder (SMS)' },
+  { name: 'Send Appreciation SMS', trigger: 'checkout', templateName: 'Appreciation (SMS)' }
 ];
 
 async function main() {
