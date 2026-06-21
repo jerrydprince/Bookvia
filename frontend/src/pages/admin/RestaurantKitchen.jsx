@@ -6,7 +6,8 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { 
   ChefHat, Utensils, Clock, CheckCircle, AlertCircle, AlertTriangle,
-  Users, DollarSign, Search, X, Check, ArrowRight, BookOpen, ShoppingBag, Plus
+  Users, DollarSign, Search, X, Check, ArrowRight, BookOpen, ShoppingBag, Plus,
+  Coffee
 } from 'lucide-react';
 
 const MENU_SEGMENTS = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Drinks', 'Appetizers'];
