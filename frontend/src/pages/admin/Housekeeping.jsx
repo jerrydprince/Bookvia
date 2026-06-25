@@ -129,6 +129,15 @@ const AdminHousekeeping = () => {
     if (status === 'inspected') payload.completed_at = new Date().toISOString();
     const { error } = await supabase.from('housekeeping_tasks').update(payload).eq('id', id);
     if (!error) {
+      if (status === 'inspected') {
+        const task = tasks.find(t => t.id === id);
+        if (task && task.room_id) {
+          const { data: roomData } = await supabase.from('rooms').select('status').eq('id', task.room_id).single();
+          if (roomData && roomData.status === 'dirty') {
+            await supabase.from('rooms').update({ status: 'available' }).eq('id', task.room_id);
+          }
+        }
+      }
       toast.success('Status updated');
       fetchData();
     } else {
@@ -149,6 +158,13 @@ const AdminHousekeeping = () => {
     }).eq('id', activeInspection);
 
     if (!error) {
+      const task = tasks.find(t => t.id === activeInspection);
+      if (task && task.room_id) {
+        const { data: roomData } = await supabase.from('rooms').select('status').eq('id', task.room_id).single();
+        if (roomData && roomData.status === 'dirty') {
+          await supabase.from('rooms').update({ status: 'available' }).eq('id', task.room_id);
+        }
+      }
       toast.success('Room marked as Inspected and Ready!');
       setActiveInspection(null);
       setChecklist({ bed: false, bathroom: false, trash: false, floors: false, restock: false });

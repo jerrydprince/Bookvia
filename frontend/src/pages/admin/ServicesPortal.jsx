@@ -83,7 +83,8 @@ const ServicesPortal = () => {
             name,
             category,
             base_price_ngn,
-            icon_name
+            icon_name,
+            internal_notes
           )
         `)
         .neq('status', 'cancelled')

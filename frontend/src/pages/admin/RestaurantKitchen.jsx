@@ -916,7 +916,7 @@ const RestaurantKitchen = () => {
            mealName.toLowerCase().includes(query);
   });
 
-  const pendingOrders = filteredOrders.filter(o => o.status === 'confirmed');
+  const pendingOrders = filteredOrders.filter(o => o.status === 'confirmed' || o.status === 'pending');
   const prepOrders = filteredOrders.filter(o => o.status === 'scheduled');
   const readyOrders = filteredOrders.filter(o => o.status === 'in_progress');
   const completedOrders = filteredOrders.filter(o => o.status === 'completed');
