@@ -124,7 +124,7 @@ function get_and_optimize_logo($settings) {
         }
         
         $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'gittest.sparklesapartments.ng';
+        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'test.sparklesapartments.ng';
         
         return $protocol . $host . '/' . $filename;
     }

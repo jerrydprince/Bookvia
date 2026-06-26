@@ -4,7 +4,7 @@
  */
 header('Content-Type: text/plain');
 
-$repoPath = '/home/sparkle7/public_html/gittest.sparklesapartments.ng';
+$repoPath = '/home/sparkle7/public_html/test.sparklesapartments.ng';
 if (!file_exists($repoPath)) {
     $repoPath = '/home/sparkle7/Sparkles-Hotel-Booking';
 }

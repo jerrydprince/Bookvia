@@ -19,7 +19,7 @@ echo "Starting Git Deployment...\n";
 // Execute git commands to pull latest changes from GitHub
 // We run reset --hard to discard any local permission drift on the host
 // Discover repository path dynamically
-$repoPath = '/home/sparkle7/public_html/gittest.sparklesapartments.ng/';
+$repoPath = '/home/sparkle7/public_html/test.sparklesapartments.ng/';
 if (!file_exists($repoPath)) {
     $repoPath = '/home/sparkle7/Sparkles-Hotel-Booking';
 }
