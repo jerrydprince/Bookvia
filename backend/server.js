@@ -153,15 +153,16 @@ app.post('/api/email/send', async (req, res) => {
       });
     }
 
-    const smtpEnabled = settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
+    const envSmtpEnabled = process.env.SMTP_ENABLED === 'true';
+    const smtpEnabled = envSmtpEnabled || settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
 
     // 2. If SMTP (cPanel Webmail) is enabled, route via Nodemailer SMTP
     if (smtpEnabled) {
-      const host = settingsMap.smtp_host || 'mail.sparklesapartments.ng';
-      const port = parseInt(settingsMap.smtp_port || '465', 10);
-      const username = settingsMap.smtp_username || 'info@sparklesapartments.ng';
-      const password = settingsMap.smtp_password || '';
-      const secure = settingsMap.smtp_secure === 'ssl' || port === 465;
+      const host = process.env.SMTP_HOST || settingsMap.smtp_host || 'mail.sparklesapartments.ng';
+      const port = parseInt(process.env.SMTP_PORT || settingsMap.smtp_port || '465', 10);
+      const username = process.env.SMTP_USERNAME || settingsMap.smtp_username || 'info@sparklesapartments.ng';
+      const password = process.env.SMTP_PASSWORD || settingsMap.smtp_password || '';
+      const secure = (process.env.SMTP_SECURE === 'ssl') || settingsMap.smtp_secure === 'ssl' || port === 465;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -176,8 +177,10 @@ app.post('/api/email/send', async (req, res) => {
         }
       });
 
-      // Force info@sparklesapartments.ng from address as requested by user
-      const smtpFrom = `Sparkles Apartments <info@sparklesapartments.ng>`;
+      // Force from address dynamically based on env or fallback
+      const fromName = process.env.SMTP_FROM_NAME || 'Sparkles Apartments';
+      const fromAddress = process.env.SMTP_FROM_ADDRESS || username;
+      const smtpFrom = `${fromName} <${fromAddress}>`;
 
       const mailOptions = {
         from: smtpFrom,
@@ -240,14 +243,15 @@ async function sendAuthEmailInternal({ to, subject, html }) {
       });
     }
 
-    const smtpEnabled = settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
+    const envSmtpEnabled = process.env.SMTP_ENABLED === 'true';
+    const smtpEnabled = envSmtpEnabled || settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
 
     if (smtpEnabled) {
-      const host = settingsMap.smtp_host || 'mail.sparklesapartments.ng';
-      const port = parseInt(settingsMap.smtp_port || '465', 10);
-      const username = settingsMap.smtp_username || 'info@sparklesapartments.ng';
-      const password = settingsMap.smtp_password || '';
-      const secure = settingsMap.smtp_secure === 'ssl' || port === 465;
+      const host = process.env.SMTP_HOST || settingsMap.smtp_host || 'mail.sparklesapartments.ng';
+      const port = parseInt(process.env.SMTP_PORT || settingsMap.smtp_port || '465', 10);
+      const username = process.env.SMTP_USERNAME || settingsMap.smtp_username || 'info@sparklesapartments.ng';
+      const password = process.env.SMTP_PASSWORD || settingsMap.smtp_password || '';
+      const secure = (process.env.SMTP_SECURE === 'ssl') || settingsMap.smtp_secure === 'ssl' || port === 465;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -257,7 +261,10 @@ async function sendAuthEmailInternal({ to, subject, html }) {
         tls: { rejectUnauthorized: false }
       });
 
-      const smtpFrom = `Sparkles Apartments <info@sparklesapartments.ng>`;
+      const fromName = process.env.SMTP_FROM_NAME || 'Sparkles Apartments';
+      const fromAddress = process.env.SMTP_FROM_ADDRESS || username;
+      const smtpFrom = `${fromName} <${fromAddress}>`;
+      
       await transporter.sendMail({
         from: smtpFrom,
         to,
