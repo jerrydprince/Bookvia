@@ -85,6 +85,8 @@ const PaginationControl = ({ currentPage, totalItems, pageSize, onPageChange }) 
   );
 };
 
+const STORE_TYPE = 'general';
+
 const StoreKeeping = () => {
   const { user, profile, hasAccess } = useAuth();
   
@@ -256,7 +258,8 @@ const StoreKeeping = () => {
       // 1. Fetch store inventory items
       const { data: itemData, error: itemErr } = await supabase
         .from('store_items')
-        .select('*')
+          .select('*')
+          .eq('store_type', STORE_TYPE)
         .order('category')
         .order('name');
 
@@ -266,7 +269,8 @@ const StoreKeeping = () => {
       // 2. Fetch inventory audits
       const { data: logData, error: logErr } = await supabase
         .from('store_logs')
-        .select('*, store_items(name, category)')
+          .select('*, store_items(name, category)')
+          .eq('store_type', STORE_TYPE)
         .order('transaction_date', { ascending: false });
 
       if (logErr) throw logErr;
@@ -275,7 +279,7 @@ const StoreKeeping = () => {
       // 3. Fetch store purchase requests
       const { data: purchaseData, error: purchaseErr } = await supabase
         .from('store_purchase_requests')
-        .select('*, store_items(id, name, quantity, category)')
+          .select('*, store_items(id, name, quantity, category)')
         .order('created_at', { ascending: false });
 
       if (purchaseErr) throw purchaseErr;
@@ -456,6 +460,7 @@ const StoreKeeping = () => {
       if (!targetItemId) {
         const { data: existingItems } = await supabase
           .from('store_items')
+          .eq('store_type', STORE_TYPE)
           .select('id, quantity')
           .ilike('name', req.item_name.trim());
         
@@ -465,7 +470,8 @@ const StoreKeeping = () => {
           // Create new store item record
           const { data: newStoreItem, error: createItemErr } = await supabase
             .from('store_items')
-            .insert([{
+          .insert([{
+            store_type: STORE_TYPE,
               name: req.item_name.trim(),
               description: req.notes || 'Procured via Store Purchase Request.',
               quantity: 0,
@@ -483,7 +489,8 @@ const StoreKeeping = () => {
       // Increment store_items quantity
       const { data: itemData, error: fetchErr } = await supabase
         .from('store_items')
-        .select('quantity, name, unit_price_ngn')
+          .eq('store_type', STORE_TYPE)
+          .select('quantity, name, unit_price_ngn')
         .eq('id', targetItemId)
         .single();
 
@@ -505,7 +512,8 @@ const StoreKeeping = () => {
       // Log an incoming record in store_logs
       const { error: logErr } = await supabase
         .from('store_logs')
-        .insert([{
+          .insert([{
+            store_type: STORE_TYPE,
           item_id: targetItemId,
           log_type: 'incoming',
           quantity: req.quantity,
@@ -577,7 +585,8 @@ const StoreKeeping = () => {
       // 1. Insert item
       const { data: inserted, error: insertErr } = await supabase
         .from('store_items')
-        .insert([{
+          .insert([{
+            store_type: STORE_TYPE,
           name: newItem.name.trim(),
           description: newItem.description || 'Standard hotel store consumable.',
           quantity: Number(newItem.quantity),
@@ -693,7 +702,8 @@ const StoreKeeping = () => {
       // Log outgoing request with 'pending_approval' status
       const { error: logErr } = await supabase
         .from('store_logs')
-        .insert([{
+          .insert([{
+            store_type: STORE_TYPE,
           item_id: outgoingForm.itemId,
           log_type: 'outgoing',
           quantity: Number(outgoingForm.quantity),
@@ -740,7 +750,8 @@ const StoreKeeping = () => {
     // Refresh stock check just in case
     const { data: latestItem, error: fetchErr } = await supabase
       .from('store_items')
-      .select('quantity, name')
+          .eq('store_type', STORE_TYPE)
+          .select('quantity, name')
       .eq('id', log.item_id)
       .single();
 

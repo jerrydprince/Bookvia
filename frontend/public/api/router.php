@@ -124,7 +124,7 @@ function get_and_optimize_logo($settings) {
         }
         
         $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'test.sparklesapartments.ng';
+        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'gittest.sparklesapartments.ng';
         
         return $protocol . $host . '/' . $filename;
     }
@@ -280,7 +280,6 @@ if (preg_match('/^payments\/verify\/(.+)$/', $route, $matches)) {
     $paystackSecret = isset($settings['paystack_secret']) ? $settings['paystack_secret'] : '';
     
     if (!$paystackSecret) {
-        // Fallback to local dev key if not configured
         $paystackSecret = 'sk_test_f0d450c6d9adea0270a749762a87b876e5646eae';
     }
     

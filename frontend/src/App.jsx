@@ -31,6 +31,7 @@ const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'));
 // Admin Pages (Lazy Loaded)
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminFrontDesk = lazy(() => import('./pages/admin/FrontDesk'));
+const AdHocInvoices = lazy(() => import('./pages/admin/AdHocInvoices'));
 const AdminReservations = lazy(() => import('./pages/admin/Reservations'));
 const AdminRooms = lazy(() => import('./pages/admin/Rooms'));
 const AdminPricing = lazy(() => import('./pages/admin/Pricing'));
@@ -51,6 +52,8 @@ const AdminLaundry = lazy(() => import('./pages/admin/Laundry'));
 const AdminAccounting = lazy(() => import('./pages/admin/Accounting'));
 const AdminPOS = lazy(() => import('./pages/admin/POS'));
 const AdminStoreKeeping = lazy(() => import('./pages/admin/StoreKeeping'));
+const AdminKitchenInventory = lazy(() => import('./pages/admin/KitchenInventory'));
+const AdminBarInventory = lazy(() => import('./pages/admin/BarInventory'));
 const AdminDutyReports = lazy(() => import('./pages/admin/DutyReports'));
 const AdminLostFound = lazy(() => import('./pages/admin/LostFound'));
 const AdminReminders = lazy(() => import('./pages/admin/Reminders'));
@@ -58,6 +61,12 @@ const AdminInternalMessages = lazy(() => import('./pages/admin/InternalMessages'
 const AdminMonthlyReports = lazy(() => import('./pages/admin/MonthlyReports'));
 const AdminRestaurantKitchen = lazy(() => import('./pages/admin/RestaurantKitchen'));
 const AdminServicesPortal = lazy(() => import('./pages/admin/ServicesPortal'));
+const AdminRFID = lazy(() => import('./pages/admin/RFIDManagement'));
+
+// TV Pages (Lazy Loaded)
+const TVLayout = lazy(() => import('./layouts/TVLayout'));
+const TVWelcomeScreen = lazy(() => import('./pages/tv/TVWelcomeScreen'));
+const TVDashboard = lazy(() => import('./pages/tv/TVDashboard'));
 
 // Guest Pages (Lazy Loaded)
 const GuestDashboard = lazy(() => import('./pages/guest/Dashboard'));
@@ -119,6 +128,7 @@ function App() {
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="frontdesk" element={<AdminFrontDesk />} />
+                  <Route path="ad-hoc-invoices" element={<AdHocInvoices />} />
                 <Route path="calendar" element={<AdminCalendar />} />
                 <Route path="reservations" element={<AdminReservations />} />
                 <Route path="rooms" element={<AdminRooms />} />
@@ -137,6 +147,8 @@ function App() {
                 <Route path="laundry" element={<AdminLaundry />} />
                 <Route path="pos" element={<AdminPOS />} />
                 <Route path="store" element={<AdminStoreKeeping />} />
+                <Route path="kitchen-inventory" element={<AdminKitchenInventory />} />
+                <Route path="bar-inventory" element={<AdminBarInventory />} />
                 <Route path="security" element={<AdminSecurity />} />
                 <Route path="accounting" element={<AdminAccounting />} />
                 <Route path="duty-reports" element={<AdminDutyReports />} />
@@ -146,6 +158,7 @@ function App() {
                 <Route path="monthly-reports" element={<AdminMonthlyReports />} />
                 <Route path="restaurant" element={<AdminRestaurantKitchen />} />
                 <Route path="services-portal" element={<AdminServicesPortal />} />
+                <Route path="rfid" element={<AdminRFID />} />
               </Route>
 
               {/* Guest Routes */}
@@ -156,6 +169,12 @@ function App() {
                 <Route path="profile" element={<Profile />} />
                 <Route path="services" element={<GuestRequestServices />} />
                 <Route path="financials" element={<GuestFinancials />} />
+              </Route>
+
+              {/* IPTV Routes */}
+              <Route path="/tv/:room_id" element={<TVLayout />}>
+                <Route index element={<TVWelcomeScreen />} />
+                <Route path="dashboard" element={<TVDashboard />} />
               </Route>
 
               {/* Catch-all 404 Route */}

@@ -5,9 +5,11 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
+import { processSmsAutomations } from './automations.js';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
-
+import { setupRFIDModule } from './rfid_module.js';
+import { setupIPTVModule } from './iptv_module.js';
 dotenv.config();
 
 const app = express();
@@ -69,6 +71,10 @@ app.get('/api', (req, res) => {
 app.get('/api/', (req, res) => {
   res.send('Luxe Apartment Booking API is running (via /api/).');
 });
+
+// Setup New Modules
+setupRFIDModule(app);
+setupIPTVModule(app);
 
 // Paystack Payment Initialization Example
 app.post('/api/payments/initialize', async (req, res) => {
@@ -153,16 +159,15 @@ app.post('/api/email/send', async (req, res) => {
       });
     }
 
-    const envSmtpEnabled = process.env.SMTP_ENABLED === 'true';
-    const smtpEnabled = envSmtpEnabled || settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
+    const smtpEnabled = settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
 
     // 2. If SMTP (cPanel Webmail) is enabled, route via Nodemailer SMTP
     if (smtpEnabled) {
-      const host = process.env.SMTP_HOST || settingsMap.smtp_host || 'mail.sparklesapartments.ng';
-      const port = parseInt(process.env.SMTP_PORT || settingsMap.smtp_port || '465', 10);
-      const username = process.env.SMTP_USERNAME || settingsMap.smtp_username || 'info@sparklesapartments.ng';
-      const password = process.env.SMTP_PASSWORD || settingsMap.smtp_password || '';
-      const secure = (process.env.SMTP_SECURE === 'ssl') || settingsMap.smtp_secure === 'ssl' || port === 465;
+      const host = settingsMap.smtp_host || 'mail.sparklesapartments.ng';
+      const port = parseInt(settingsMap.smtp_port || '465', 10);
+      const username = settingsMap.smtp_username || 'info@sparklesapartments.ng';
+      const password = settingsMap.smtp_password || '';
+      const secure = settingsMap.smtp_secure === 'ssl' || port === 465;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -177,10 +182,8 @@ app.post('/api/email/send', async (req, res) => {
         }
       });
 
-      // Force from address dynamically based on env or fallback
-      const fromName = process.env.SMTP_FROM_NAME || 'Sparkles Apartments';
-      const fromAddress = process.env.SMTP_FROM_ADDRESS || username;
-      const smtpFrom = `${fromName} <${fromAddress}>`;
+      // Force info@sparklesapartments.ng from address as requested by user
+      const smtpFrom = `Sparkles Apartments <info@sparklesapartments.ng>`;
 
       const mailOptions = {
         from: smtpFrom,
@@ -243,15 +246,14 @@ async function sendAuthEmailInternal({ to, subject, html }) {
       });
     }
 
-    const envSmtpEnabled = process.env.SMTP_ENABLED === 'true';
-    const smtpEnabled = envSmtpEnabled || settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
+    const smtpEnabled = settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
 
     if (smtpEnabled) {
-      const host = process.env.SMTP_HOST || settingsMap.smtp_host || 'mail.sparklesapartments.ng';
-      const port = parseInt(process.env.SMTP_PORT || settingsMap.smtp_port || '465', 10);
-      const username = process.env.SMTP_USERNAME || settingsMap.smtp_username || 'info@sparklesapartments.ng';
-      const password = process.env.SMTP_PASSWORD || settingsMap.smtp_password || '';
-      const secure = (process.env.SMTP_SECURE === 'ssl') || settingsMap.smtp_secure === 'ssl' || port === 465;
+      const host = settingsMap.smtp_host || 'mail.sparklesapartments.ng';
+      const port = parseInt(settingsMap.smtp_port || '465', 10);
+      const username = settingsMap.smtp_username || 'info@sparklesapartments.ng';
+      const password = settingsMap.smtp_password || '';
+      const secure = settingsMap.smtp_secure === 'ssl' || port === 465;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -261,10 +263,7 @@ async function sendAuthEmailInternal({ to, subject, html }) {
         tls: { rejectUnauthorized: false }
       });
 
-      const fromName = process.env.SMTP_FROM_NAME || 'Sparkles Apartments';
-      const fromAddress = process.env.SMTP_FROM_ADDRESS || username;
-      const smtpFrom = `${fromName} <${fromAddress}>`;
-      
+      const smtpFrom = `Sparkles Apartments <info@sparklesapartments.ng>`;
       await transporter.sendMail({
         from: smtpFrom,
         to,
@@ -432,15 +431,43 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// Contact Form Submission (Local stub)
+// Contact Form Submission
 app.post('/api/contact/submit', async (req, res) => {
   const { name, email, subject, message } = req.body;
-  console.log(`[Local Contact API] Received submission:`);
-  console.log(`- From: ${name} <${email}>`);
-  console.log(`- Subject: ${subject}`);
-  console.log(`- Message: ${message}`);
+  console.log(`[Contact API] Received submission from: ${name} <${email}>`);
   
-  res.json({ success: true });
+  try {
+    // Fetch system settings to get the contact email dynamically
+    const { data: settings } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'contact_email')
+      .single();
+      
+    const contactEmail = settings?.setting_value || 'contact@sparklesapartments.ng';
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+        <h2 style="color: #DF6853; border-bottom: 2px solid #eee; padding-bottom: 10px;">New Contact Form Submission</h2>
+        <p><strong>From:</strong> ${name} (${email})</p>
+        <p><strong>Subject:</strong> ${subject}</p>
+        <div style="margin-top: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px;">
+          <p style="margin: 0; white-space: pre-wrap;">${message}</p>
+        </div>
+      </div>
+    `;
+
+    await sendAuthEmailInternal({ 
+      to: contactEmail, 
+      subject: `New Inquiry: ${subject}`, 
+      html 
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Contact API] Failed to send contact email:', err);
+    res.status(500).json({ error: 'Failed to send message.' });
+  }
 });
 
 // Biometric Shift Clock-in and Clock-out API Integration
@@ -829,6 +856,7 @@ const processOverdueCheckouts = async () => {
 cron.schedule('*/5 * * * *', () => {
   console.log('Running overdue checkout auto‑charge job...');
   processOverdueCheckouts();
+  processSmsAutomations();
 });
 
 app.post('/api/sms/send', async (req, res) => {
@@ -863,9 +891,9 @@ app.post('/api/sms/send', async (req, res) => {
         acc[curr.setting_key] = curr.setting_value;
         return acc;
       }, {});
-      gateway = sMap.sms_gateway || 'mock';
-      termiiKey = sMap.sms_termii_api_key || '';
-      termiiSender = sMap.sms_termii_sender_id || 'Sparkles';
+      gateway = 'termii'; // Force Termii
+      termiiKey = 'TLgXnjVEEEDmCUPBYdLqYAJwkJsaSbniXMfNXmeHeaRfJosZrOlGmVpfAjyELl'; // Provided key
+      termiiSender = 'SparklesApt'; // Requested sender
       twilioSid = sMap.sms_twilio_account_sid || '';
       twilioToken = sMap.sms_twilio_auth_token || '';
       twilioFrom = sMap.sms_twilio_from_number || '';
@@ -873,6 +901,11 @@ app.post('/api/sms/send', async (req, res) => {
   } catch (dbErr) {
     console.warn("Failed to load SMS settings from DB: ", dbErr.message);
   }
+
+  // Force Termii overrides if DB fails
+  gateway = 'termii';
+  termiiKey = 'TLgXnjVEEEDmCUPBYdLqYAJwkJsaSbniXMfNXmeHeaRfJosZrOlGmVpfAjyELl';
+  termiiSender = 'SparklesApt';
 
   // Normalize phone numbers to include international code, stripping optional lead symbols
   let normalizedPhone = to.trim();
@@ -889,7 +922,7 @@ app.post('/api/sms/send', async (req, res) => {
       return res.status(500).json({ error: 'Termii API Key is not configured in settings.' });
     }
     try {
-      const response = await fetch('https://api.ng.termii.com/api/sms/send', {
+      const response = await fetch('https://v3.api.termii.com/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -941,20 +974,54 @@ app.post('/api/sms/send', async (req, res) => {
       return res.status(500).json({ error: 'Twilio API dispatch error: ' + err.message });
     }
   } else {
-    // Mock sandbox simulator mode
-    await new Promise(resolve => setTimeout(resolve, 300));
-    try {
-      await supabase.from('notification_logs').insert([{
-        recipient: normalizedPhone,
-        channel: 'sms',
-        template_name: 'Mock SMS Notification',
-        status: 'sent',
-        error_message: 'Simulated sandbox SMS delivery.'
-      }]);
-    } catch (e) {
-      console.warn("Could not log mock SMS notification:", e.message);
-    }
+    // Mock simulation
+    console.log(`[SMS Mock] Simulating SMS dispatch to ${normalizedPhone}`);
     return res.json({ success: true, simulated: true, messageId: 'mock_' + Date.now() });
+  }
+});
+
+// Bulk SMS Endpoint
+app.post('/api/sms/send/bulk', async (req, res) => {
+  const { to, message } = req.body; // to is an array
+  if (!to || !Array.isArray(to) || to.length === 0 || !message) {
+    return res.status(400).json({ error: 'Missing to array or message in request body' });
+  }
+
+  const termiiKey = 'TLgXnjVEEEDmCUPBYdLqYAJwkJsaSbniXMfNXmeHeaRfJosZrOlGmVpfAjyELl';
+  const termiiSender = 'SparklesApt';
+
+  const validNumbers = to.map(phone => {
+    let num = phone.trim();
+    if (num.startsWith('0') && num.length === 11) return '234' + num.slice(1);
+    if (num.startsWith('+')) return num.slice(1);
+    return num;
+  }).filter(Boolean);
+
+  if (validNumbers.length === 0) {
+    return res.status(400).json({ error: 'No valid numbers provided' });
+  }
+
+  try {
+    const response = await fetch('https://v3.api.termii.com/api/sms/send/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: validNumbers,
+        from: termiiSender,
+        sms: message,
+        type: 'plain',
+        channel: 'generic',
+        api_key: termiiKey
+      })
+    });
+    const data = await response.json();
+    if (response.ok) {
+      return res.json({ success: true, messageId: data.message_id || 'termii_bulk_' + Date.now() });
+    } else {
+      return res.status(500).json({ error: data.message || 'Termii Bulk API failed', details: data });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: 'Termii Bulk API dispatch error: ' + err.message });
   }
 });
 

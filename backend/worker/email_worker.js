@@ -1,21 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; 
-const RESEND_API_KEY = process.env.VITE_RESEND_API_KEY || process.env.RESEND_API_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !RESEND_API_KEY) {
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Missing required environment variables. Please check your .env file.");
-  console.error(`URL: ${!!SUPABASE_URL}, ServiceKey: ${!!SUPABASE_SERVICE_KEY}, ResendKey: ${!!RESEND_API_KEY}`);
   process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-const resend = new Resend(RESEND_API_KEY);
 
 console.log("🚀 Starting Luxe PMS Background Worker...");
 console.log("✉️ Listening for new confirmed bookings to send confirmation emails...");
@@ -25,13 +22,16 @@ supabase
   .channel('custom-all-channel')
   .on(
     'postgres_changes',
-    { event: 'UPDATE', schema: 'public', table: 'bookings' },
+    { event: '*', schema: 'public', table: 'bookings' },
     async (payload) => {
-      const { new: newRecord, old: oldRecord } = payload;
+      const { eventType, new: newRecord, old: oldRecord } = payload;
       
-      // Trigger only when a booking goes from pending -> confirmed
-      if (oldRecord.status !== 'confirmed' && newRecord.status === 'confirmed') {
-        console.log(`[EVENT] Booking ${newRecord.booking_reference} confirmed! Preparing notifications...`);
+      // Trigger when a booking is created as confirmed, or updated to confirmed
+      const isNewAndConfirmed = eventType === 'INSERT' && newRecord.status === 'confirmed';
+      const isUpdatedToConfirmed = eventType === 'UPDATE' && oldRecord.status !== 'confirmed' && newRecord.status === 'confirmed';
+
+      if (isNewAndConfirmed || isUpdatedToConfirmed) {
+        console.log(`[EVENT] Booking ${newRecord.booking_reference} confirmed (${eventType})! Preparing notifications...`);
         await Promise.all([
           sendBookingConfirmation(newRecord),
           sendBookingSMS(newRecord)
@@ -110,17 +110,70 @@ async function sendBookingConfirmation(booking) {
       </div>
     `;
 
-    const { data, error } = await resend.emails.send({
-      from: 'Luxe Reservations <onboarding@resend.dev>', // Use verified domain in production
-      to: [booking.guest_email],
-      subject: `Booking Confirmed: ${booking.booking_reference} at Luxe Apartments`,
-      html: htmlContent
-    });
+    // Fetch system settings to configure SMTP
+    const { data: settings, error: settingsError } = await supabase
+      .from('system_settings')
+      .select('setting_key, setting_value');
 
-    if (error) {
-      console.error(`[ERROR] Failed to send email to ${booking.guest_email}:`, error);
+    const settingsMap = {};
+    if (!settingsError && settings) {
+      settings.forEach(row => {
+        settingsMap[row.setting_key] = row.setting_value;
+      });
+    }
+
+    const smtpEnabled = settingsMap.smtp_enabled === 'true' || settingsMap.smtp_enabled === true;
+
+    if (smtpEnabled) {
+      const host = settingsMap.smtp_host || 'mail.sparklesapartments.ng';
+      const port = parseInt(settingsMap.smtp_port || '465', 10);
+      const username = settingsMap.smtp_username || 'info@sparklesapartments.ng';
+      const password = settingsMap.smtp_password || '';
+      const secure = settingsMap.smtp_secure === 'ssl' || port === 465;
+
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user: username, pass: password },
+        tls: { rejectUnauthorized: false }
+      });
+
+      const smtpFrom = `Sparkles Apartments <info@sparklesapartments.ng>`;
+      const info = await transporter.sendMail({
+        from: smtpFrom,
+        to: booking.guest_email,
+        subject: `Booking Confirmed: ${booking.booking_reference} at Luxe Apartments`,
+        html: htmlContent
+      });
+
+      console.log(`[SUCCESS] Email sent successfully to ${booking.guest_email}! ID: ${info.messageId}`);
     } else {
-      console.log(`[SUCCESS] Email sent successfully to ${booking.guest_email}! ID: ${data.id}`);
+      let apiKey = process.env.RESEND_API_KEY || settingsMap.resend_api_key;
+      if (!apiKey) {
+        throw new Error('Neither SMTP nor Resend API key is configured. Cannot send email.');
+      }
+      
+      console.log(`[Resend Fallback] Dispatching email to: ${booking.guest_email}...`);
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Sparkles Apartments <info@sparklesapartments.ng>',
+          to: [booking.guest_email],
+          subject: `Booking Confirmed: ${booking.booking_reference} at Luxe Apartments`,
+          html: htmlContent
+        })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Resend API returned an error');
+      }
+      console.log(`[SUCCESS] Email sent via Resend to ${booking.guest_email}!`);
     }
 
   } catch (error) {

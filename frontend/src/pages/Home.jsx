@@ -48,7 +48,7 @@ const Home = () => {
   const getInitialHeroSlides = () => {
     if (!cachedCmsContent) return defaultHeroSlides;
     const newSlides = [];
-    
+
     // Slide 1
     if (cachedCmsContent.cms_home_hero_bg_1 || cachedCmsContent.cms_home_hero_title) {
       newSlides.push({
@@ -57,7 +57,7 @@ const Home = () => {
         subtitle: cachedCmsContent.cms_home_hero_subtitle || defaultHeroSlides[0].subtitle
       });
     } else { newSlides.push(defaultHeroSlides[0]); }
-    
+
     // Slide 2
     if (cachedCmsContent.cms_home_hero_bg_2 || cachedCmsContent.cms_home_hero_title_2) {
       newSlides.push({
@@ -66,7 +66,7 @@ const Home = () => {
         subtitle: cachedCmsContent.cms_home_hero_subtitle_2 || defaultHeroSlides[1].subtitle
       });
     } else { newSlides.push(defaultHeroSlides[1]); }
-    
+
     // Slide 3
     if (cachedCmsContent.cms_home_hero_bg_3 || cachedCmsContent.cms_home_hero_title_3) {
       newSlides.push({
@@ -105,10 +105,10 @@ const Home = () => {
         cmsRes.data.forEach(item => contentMap[item.setting_key] = item.setting_value);
         setCmsContent(contentMap);
         setCachedData('cmsContent', contentMap);
-        
+
         // Build hero slides array from CMS content
         const newSlides = [];
-        
+
         // Slide 1
         if (contentMap.cms_home_hero_bg_1 || contentMap.cms_home_hero_title) {
           newSlides.push({
@@ -117,7 +117,7 @@ const Home = () => {
             subtitle: contentMap.cms_home_hero_subtitle || defaultHeroSlides[0].subtitle
           });
         } else { newSlides.push(defaultHeroSlides[0]); }
-        
+
         // Slide 2
         if (contentMap.cms_home_hero_bg_2 || contentMap.cms_home_hero_title_2) {
           newSlides.push({
@@ -126,7 +126,7 @@ const Home = () => {
             subtitle: contentMap.cms_home_hero_subtitle_2 || defaultHeroSlides[1].subtitle
           });
         } else { newSlides.push(defaultHeroSlides[1]); }
-        
+
         // Slide 3
         if (contentMap.cms_home_hero_bg_3 || contentMap.cms_home_hero_title_3) {
           newSlides.push({
@@ -169,8 +169,8 @@ const Home = () => {
           >
             <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/80 z-10" />
             {heroSlides[currentSlide].image ? (
-              <img 
-                src={heroSlides[currentSlide].image} 
+              <img
+                src={heroSlides[currentSlide].image}
                 alt={heroSlides[currentSlide].title}
                 className="w-full h-full object-cover"
                 loading="eager"
@@ -189,7 +189,7 @@ const Home = () => {
         <div className="absolute inset-0 bg-black/55 z-10 pointer-events-none" />
 
         <div className="relative z-20 container mx-auto px-6 text-center">
-          <motion.h1 
+          <motion.h1
             initial={{ y: 30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2, duration: 0.8 }}
@@ -197,7 +197,7 @@ const Home = () => {
           >
             {heroSlides[currentSlide].title}
           </motion.h1>
-          <motion.p 
+          <motion.p
             initial={{ y: 30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.4, duration: 0.8 }}
@@ -231,7 +231,7 @@ const Home = () => {
         {/* Slide Indicators */}
         <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 flex space-x-3">
           {heroSlides.map((_, idx) => (
-            <button 
+            <button
               key={idx}
               onClick={() => setCurrentSlide(idx)}
               className={`w-3 h-3 rounded-full transition-all duration-300 ${currentSlide === idx ? 'bg-gold-500 w-8' : 'bg-white/50 hover:bg-white'}`}
@@ -245,10 +245,10 @@ const Home = () => {
         <div className="container mx-auto px-6">
           <div className="flex flex-col lg:flex-row items-center gap-16">
             <div className="lg:w-1/2">
-              <h4 className="text-gold-500 font-medium tracking-widest uppercase mb-4">About Luxe</h4>
+              <h4 className="text-gold-500 font-medium tracking-widest uppercase mb-4">About Sparkles Apartments</h4>
               <h2 className="text-4xl md:text-5xl font-bold mb-8 leading-tight">{cmsContent.cms_home_about_title || 'Redefining the standard of luxury living.'}</h2>
               <p className="text-gray-400 text-lg mb-6 leading-relaxed">
-                {cmsContent.cms_home_about_text_1 || 'Nestled in the most prestigious neighborhood, Luxe offers an unparalleled living experience. Our carefully curated apartments blend contemporary design with ultimate comfort, creating a sanctuary for both business travelers and leisure seekers.'}
+                {cmsContent.cms_home_about_text_1 || 'Nestled in the most prestigious neighborhood, Sparkles Apartments offers an unparalleled living experience. Our carefully curated apartments blend contemporary design with ultimate comfort, creating a sanctuary for both business travelers and leisure seekers.'}
               </p>
               <p className="text-gray-400 text-lg mb-10 leading-relaxed">
                 {cmsContent.cms_home_about_text_2 || 'Every corner is thoughtfully designed to anticipate your needs, providing a seamless blend of aesthetics and functionality.'}
@@ -290,20 +290,20 @@ const Home = () => {
             <h4 className="text-gold-500 font-medium tracking-widest uppercase mb-4">Our Residences</h4>
             <h2 className="text-4xl md:text-5xl font-bold">Discover Your Perfect Space</h2>
           </div>
-          
+
           <div className="relative group/slider px-4 md:px-12">
             {/* Left Control Arrow */}
-            <button 
-              onClick={scrollLeft} 
+            <button
+              onClick={scrollLeft}
               className="absolute left-0 md:left-2 top-1/2 -translate-y-1/2 z-20 bg-dark-800/90 hover:bg-gold-500 hover:text-dark-900 border border-dark-700 hover:border-gold-500 text-white p-3 rounded-full shadow-2xl transition-all duration-300 backdrop-blur-sm opacity-0 group-hover/slider:opacity-100 focus:opacity-100 flex items-center justify-center"
               aria-label="Scroll Left"
             >
               <ChevronLeft size={24} />
             </button>
-            
+
             {/* Right Control Arrow */}
-            <button 
-              onClick={scrollRight} 
+            <button
+              onClick={scrollRight}
               className="absolute right-0 md:right-2 top-1/2 -translate-y-1/2 z-20 bg-dark-800/90 hover:bg-gold-500 hover:text-dark-900 border border-dark-700 hover:border-gold-500 text-white p-3 rounded-full shadow-2xl transition-all duration-300 backdrop-blur-sm opacity-0 group-hover/slider:opacity-100 focus:opacity-100 flex items-center justify-center"
               aria-label="Scroll Right"
             >
@@ -311,28 +311,28 @@ const Home = () => {
             </button>
 
             {/* Horizontal Scroll Container */}
-            <div 
+            <div
               ref={sliderRef}
               className="flex gap-8 overflow-x-auto pb-8 pt-2 px-1 scroll-smooth snap-x snap-mandatory no-scrollbar"
             >
               {featuredRooms.map(room => (
-                <div 
-                  key={room.id} 
+                <div
+                  key={room.id}
                   className="bg-dark-800 border border-dark-700 group overflow-hidden flex flex-col h-full flex-shrink-0 w-[300px] sm:w-[350px] md:w-[380px] snap-start transition-all duration-300 hover:shadow-[0_10px_30px_rgba(245,158,11,0.15)] hover:border-gold-500/50"
                 >
                   <div className="relative h-64 overflow-hidden">
                     {room.image_url ? (
-                      <img 
-                        src={room.image_url} 
-                        alt={room.name} 
+                      <img
+                        src={room.image_url}
+                        alt={room.name}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                       />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-dark-900 to-black text-center p-4">
-                        <span className="text-gold-500 font-serif text-base tracking-widest uppercase">Luxe Residence</span>
+                        <span className="text-gold-500 font-serif text-base tracking-widest uppercase">Sparkles Apartments</span>
                       </div>
                     )}
-                    
+
                     {/* Status Badge */}
                     <div className="absolute top-4 left-4 bg-dark-900/90 backdrop-blur-sm px-3 py-1.5 text-xs font-semibold border border-dark-700 uppercase tracking-wider flex items-center gap-1.5 rounded-sm">
                       <span className={`w-2 h-2 rounded-full ${room.status === 'available' ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`}></span>
@@ -374,7 +374,7 @@ const Home = () => {
               ))}
             </div>
           </div>
-          
+
           <div className="text-center mt-8">
             <Link to="/apartments" className="inline-flex items-center text-gold-500 font-medium hover:text-gold-400 transition-colors">
               View all apartments <ChevronRight size={20} className="ml-2" />
@@ -388,7 +388,7 @@ const Home = () => {
         <div className="container mx-auto px-6 text-center">
           <h4 className="text-gold-500 font-medium tracking-widest uppercase mb-4">Premium Facilities</h4>
           <h2 className="text-4xl md:text-5xl font-bold mb-16">Unmatched Amenities</h2>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
               { icon: <Wifi size={32} />, title: 'High-Speed WiFi', desc: 'Stay connected with blazing fast internet access.' },
@@ -416,7 +416,7 @@ const Home = () => {
           {cmsContent.cms_home_cta_bg ? (
             <img src={cmsContent.cms_home_cta_bg} alt="CTA Background" className="w-full h-full object-cover" />
           ) : (
-            <div 
+            <div
               className="w-full h-full"
               style={{
                 background: 'radial-gradient(circle at center, #27272a 0%, #09090b 100%)'

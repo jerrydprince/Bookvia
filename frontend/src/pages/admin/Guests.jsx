@@ -6,6 +6,33 @@ const PaginationControl = ({ currentPage, totalItems, pageSize, onPageChange }) 
   const totalPages = Math.ceil(totalItems / pageSize);
   if (totalPages <= 1) return null;
 
+  const getVisiblePages = () => {
+    const delta = 2;
+    const range = [];
+    const rangeWithDots = [];
+    let l;
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (let i of range) {
+      if (l) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
+  };
+
   return (
     <div className="flex items-center justify-between border-t border-dark-700 bg-dark-900/30 px-4 py-3 sm:px-6 mt-4 rounded-b-lg">
       <div className="flex flex-1 justify-between sm:hidden">
@@ -47,19 +74,25 @@ const PaginationControl = ({ currentPage, totalItems, pageSize, onPageChange }) 
               <span className="sr-only">Previous</span>
               &larr;
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                type="button"
-                key={page}
-                onClick={() => onPageChange(page)}
-                className={`relative inline-flex items-center px-3 py-2 text-xs font-bold ring-1 ring-inset ring-dark-750 cursor-pointer ${
-                  page === currentPage
-                    ? 'z-10 bg-brand-500 text-dark-950 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 font-extrabold'
-                    : 'text-gray-300 bg-dark-800 hover:bg-dark-700 focus:z-20 focus:outline-offset-0'
-                }`}
-              >
-                {page}
-              </button>
+            {getVisiblePages().map((page, index) => (
+              page === '...' ? (
+                <span key={`dots-${index}`} className="relative inline-flex items-center px-3 py-2 text-xs font-bold text-gray-500 ring-1 ring-inset ring-dark-750 bg-dark-800 cursor-default">
+                  ...
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  key={page}
+                  onClick={() => onPageChange(page)}
+                  className={`relative inline-flex items-center px-3 py-2 text-xs font-bold ring-1 ring-inset ring-dark-750 cursor-pointer ${
+                    page === currentPage
+                      ? 'z-10 bg-brand-500 text-dark-950 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 font-extrabold'
+                      : 'text-gray-300 bg-dark-800 hover:bg-dark-700 focus:z-20 focus:outline-offset-0'
+                  }`}
+                >
+                  {page}
+                </button>
+              )
             ))}
             <button
               type="button"
@@ -144,6 +177,7 @@ const AdminGuests = () => {
   const [broadcastSegment, setBroadcastSegment] = useState('all');
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastManualNumbers, setBroadcastManualNumbers] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastProgress, setBroadcastProgress] = useState({ current: 0, total: 0 });
   const [broadcastConsoleLogs, setBroadcastConsoleLogs] = useState([]);
@@ -235,7 +269,7 @@ const AdminGuests = () => {
 
   useEffect(() => {
     setCurrentPageGuests(1);
-  }, [searchTerm, viewMode]);
+  }, [searchTerm, viewMode, parentTab]);
 
   useEffect(() => {
     setCurrentPageGroups(1);
@@ -1236,20 +1270,57 @@ const AdminGuests = () => {
     e.preventDefault();
     if (!commMessage) return;
     
-    // Log to DB
-    const { error } = await supabase.from('communication_logs').insert([{
-      crm_guest_id: selectedGuest.id,
-      type: commType,
-      category: 'custom',
-      content: commMessage
-    }]);
+    const loaderId = toast.loading(`Sending ${commType.toUpperCase()}...`);
+    let res = { success: false };
 
-    if (!error) {
-      toast.success(`${commType.toUpperCase()} sent to ${selectedGuest.first_name}`);
-      setCommMessage('');
-      fetchComms(selectedGuest.id);
-    } else {
-      toast.error('Failed to send message');
+    try {
+      if (commType === 'email') {
+        if (!selectedGuest.email) throw new Error("Guest has no email address");
+        res = await sendResendEmail({
+          to: selectedGuest.email,
+          subject: 'Message from Sparkles Apartments',
+          from: 'info@sparklesapartments.ng',
+          html: `<div style="font-family: sans-serif; padding: 20px;">
+                  <p>Hello ${selectedGuest.first_name || ''},</p>
+                  <p>${commMessage.replace(/\n/g, '<br/>')}</p>
+                 </div>`
+        });
+      } else if (commType === 'sms') {
+        if (!selectedGuest.phone) throw new Error("Guest has no phone number");
+        res = await sendSMSNotification({
+          to: selectedGuest.phone,
+          message: commMessage
+        });
+      } else if (commType === 'whatsapp') {
+        if (!selectedGuest.phone) throw new Error("Guest has no phone number");
+        // Open WhatsApp Web/App directly for manual CRM communication
+        const waLink = `https://wa.me/${selectedGuest.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(commMessage)}`;
+        window.open(waLink, '_blank');
+        res = { success: true, simulated: true };
+      }
+
+      if (res.success) {
+        // Log to DB
+        const { error } = await supabase.from('communication_logs').insert([{
+          crm_guest_id: selectedGuest.id,
+          type: commType,
+          category: 'custom',
+          content: commMessage,
+          status: 'sent'
+        }]);
+
+        if (!error) {
+          toast.success(`${commType.toUpperCase()} sent to ${selectedGuest.first_name}`, { id: loaderId });
+          setCommMessage('');
+          fetchComms(selectedGuest.id);
+        } else {
+          toast.error('Sent, but failed to log message', { id: loaderId });
+        }
+      } else {
+        toast.error(`Failed to send ${commType.toUpperCase()}: ${res.error || 'Unknown error'}`, { id: loaderId });
+      }
+    } catch (err) {
+      toast.error(err.message || `Failed to send ${commType.toUpperCase()}`, { id: loaderId });
     }
   };
 
@@ -1267,10 +1338,25 @@ const AdminGuests = () => {
       targets = guests.filter(g => g.segment === 'standard');
     } else if (broadcastSegment === 'corporate') {
       targets = guests.filter(g => g.segment === 'corporate');
+    } else if (broadcastSegment === 'others') {
+      targets = [];
     }
 
+    let manualTargets = [];
+    if (broadcastChannel === 'sms' && broadcastManualNumbers.trim()) {
+      const numbers = broadcastManualNumbers.split(',').map(n => n.trim()).filter(n => n);
+      manualTargets = numbers.map(num => ({
+        id: 'manual_' + num,
+        first_name: 'Guest',
+        phone: num,
+        email: ''
+      }));
+    }
+    
+    targets = [...targets, ...manualTargets];
+
     if (targets.length === 0) {
-      return toast.error("No guests match the selected filter segment.");
+      return toast.error("No guests match the selected filter segment and no valid manual numbers provided.");
     }
 
     if (!window.confirm(`Are you sure you want to send this broadcast message to ${targets.length} guests?`)) {
@@ -2122,8 +2208,22 @@ const AdminGuests = () => {
                     <option value="standard">Standard Segment Only ({guests.filter(g => g.segment === 'standard').length} matches)</option>
                     <option value="corporate">Corporate CRM Contacts ({guests.filter(g => g.segment === 'corporate').length} matches)</option>
                     <option value="vip">VIP Guest List ({guests.filter(g => g.vip_status || g.segment === 'vip').length} matches)</option>
+                    <option value="others">Others (Manual Phone Numbers Only)</option>
                   </select>
                 </div>
+                
+                {broadcastChannel === 'sms' && (
+                  <div>
+                    <label className="block text-xs text-gray-450 mb-1.5 font-semibold">Additional Manual Phone Numbers (Comma Separated)</label>
+                    <textarea 
+                      value={broadcastManualNumbers} 
+                      onChange={e => setBroadcastManualNumbers(e.target.value)}
+                      disabled={broadcastSending}
+                      placeholder="e.g. 23490555546, 23423490126999"
+                      className="w-full bg-dark-800 border border-dark-700 p-3 rounded-lg text-white text-sm outline-none focus:border-brand-500 font-mono resize-none h-20"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="bg-dark-900 p-5 border border-dark-750 rounded-xl space-y-4">

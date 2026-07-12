@@ -233,6 +233,7 @@ const BookingEngine = () => {
   const [bookingRules, setBookingRules] = useState({
     payment_rule: 'partial_deposit',
     deposit_percentage: 30,
+    caution_fee: 0,
     cancellation_policy: 'Flexible',
     auto_confirmation: true
   });
@@ -246,7 +247,7 @@ const BookingEngine = () => {
         supabase.from('rate_plans').select('*').eq('is_active', true),
         supabase.from('coupons').select('*').eq('is_active', true),
         supabase.from('cms_pages').select('content').eq('slug', 'system_categories').maybeSingle(),
-        supabase.from('system_settings').select('setting_key, setting_value').in('setting_key', ['contact_address', 'contact_phone', 'contact_email', 'contact_logo', 'payment_rule', 'deposit_percentage', 'cancellation_policy', 'auto_confirmation', 'paystack_public']),
+        supabase.from('system_settings').select('setting_key, setting_value').in('setting_key', ['contact_address', 'contact_phone', 'contact_email', 'contact_logo', 'payment_rule', 'deposit_percentage', 'caution_fee', 'cancellation_policy', 'auto_confirmation', 'paystack_public']),
         supabase.from('halls').select('*').eq('is_active', true),
         supabase.from('hall_meal_options').select('*').eq('is_active', true)
       ]);
@@ -286,6 +287,7 @@ const BookingEngine = () => {
         setBookingRules({
           payment_rule: settingsMap.payment_rule || 'partial_deposit',
           deposit_percentage: parseFloat(settingsMap.deposit_percentage) || 30,
+          caution_fee: parseFloat(settingsMap.caution_fee) || 0,
           cancellation_policy: settingsMap.cancellation_policy || 'Flexible',
           auto_confirmation: settingsMap.auto_confirmation !== false
         });
@@ -477,8 +479,10 @@ const BookingEngine = () => {
       });
 
       const subtotal = hallPrice + mealsPrice;
-      const vat = subtotal * 0.075;
-      return subtotal + vat;
+      const vat = Math.round(subtotal * 0.075);
+      const consTax = Math.round(subtotal * 0.05);
+      const tax = vat + consTax;
+      return Math.round(subtotal + tax + bookingRules.caution_fee);
     }
 
     let roomPrice = 0;
@@ -500,14 +504,15 @@ const BookingEngine = () => {
     const allAvailableServices = [...services, ...foodServices];
     selectedServices.forEach(sData => {
       const service = allAvailableServices.find(s => s.id === sData.service_id);
-      if(service) {
+      if (service) {
         servicesPrice += getServicePrice(service, sData.quantity);
       }
     });
 
     const subtotal = Math.max(0, (roomPrice - discountAmount) + servicesPrice);
-    const vat = subtotal * 0.075;
-    return subtotal + vat;
+    const vat = Math.round(subtotal * 0.075);
+    const consTax = Math.round(subtotal * 0.05);
+    return Math.round(subtotal + vat + consTax + bookingRules.caution_fee);
   };
 
   const toggleService = (service) => {
@@ -564,10 +569,10 @@ const BookingEngine = () => {
       return total;
     }
     if (bookingRules.payment_rule === 'partial_deposit') {
-      return parseFloat((total * (bookingRules.deposit_percentage / 100)).toFixed(2));
+      return parseFloat(((total - bookingRules.caution_fee) * (bookingRules.deposit_percentage / 100) + bookingRules.caution_fee).toFixed(2));
     }
     return total;
-  }, [calculateTotal(), bookingMode, bookingRules.payment_rule, bookingRules.deposit_percentage]);
+  }, [calculateTotal(), bookingMode, bookingRules.payment_rule, bookingRules.deposit_percentage, bookingRules.caution_fee]);
 
   const [bookingRef, setBookingRef] = useState(null);
   const [shouldTriggerPaystack, setShouldTriggerPaystack] = useState(false);
@@ -669,7 +674,7 @@ const BookingEngine = () => {
           reference: bookingRef,
           email: guestForm.email || 'guest@example.com',
           amount: Math.round(payOnlineAmount * 100), // Amount is in kobo
-          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
+          publicKey: paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
           currency: 'NGN',
           callback_url: window.location.origin + '/booking'
         },
@@ -962,8 +967,9 @@ const BookingEngine = () => {
             check_out_date: checkOutDateStr,
             total_room_price_ngn: roomPriceDetails.totalRoomPrice,
             total_amount_ngn: calculateTotal(),
-            total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount),
+            total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount) - bookingRules.caution_fee,
             discount_amount_ngn: calculatedDiscount,
+            caution_fee_ngn: bookingRules.caution_fee,
             special_requests: guestForm.specialRequests || ''
           })
           .eq('booking_reference', pendingBookingRef.current)
@@ -989,8 +995,9 @@ const BookingEngine = () => {
           status: 'pending',
           total_room_price_ngn: roomPriceDetails.totalRoomPrice,
           total_amount_ngn: calculateTotal(),
-          total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount),
+          total_extras_price_ngn: calculateTotal() - (roomPriceDetails.totalRoomPrice - calculatedDiscount) - bookingRules.caution_fee,
           discount_amount_ngn: calculatedDiscount,
+          caution_fee_ngn: bookingRules.caution_fee,
           amount_paid_ngn: 0,
           payment_status: 'unpaid',
           special_requests: guestForm.specialRequests || ''
@@ -1054,6 +1061,7 @@ const BookingEngine = () => {
           .update({
             amount_paid_ngn: paidAmount,
             payment_status: statusPayment,
+            caution_fee_status: bookingRules.caution_fee > 0 ? (paidAmount >= calculateTotal() ? 'held' : 'unpaid') : 'unpaid',
             status: 'confirmed'
           })
           .eq('id', insertedBooking.id);
@@ -1222,11 +1230,28 @@ const BookingEngine = () => {
                 discountVal = Math.max(0, Math.min(roomPrice, discountVal));
               }
               const roomBase = Math.max(0, roomPrice - discountVal);
-              const roomTax = roomBase * 0.075;
-              const roomTotalWithTax = roomBase + roomTax;
+              const roomVat = Math.round(roomBase * 0.075);
+              const roomConsTax = Math.round(roomBase * 0.05);
+              
+              const activeServices = selectedServices.map(sData => ({
+                service: [...services, ...foodServices].find(s => s.id === sData.service_id),
+                sData
+              })).filter(extra => extra.service);
+              
+              const servicesSummary = activeServices.reduce((acc, extra) => {
+                const isTaxable = typeof extra.service?.is_taxable !== 'undefined' ? extra.service?.is_taxable : true;
+                const sBasePrice = getServicePrice(extra.service, extra.sData.quantity);
+                const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+                const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+                return { base: acc.base + sBasePrice, vat: acc.vat + sVat, consTax: acc.consTax + sConsTax };
+              }, { base: 0, vat: 0, consTax: 0 });
+
+              const roomTotalWithTax = roomBase + roomVat + roomConsTax;
+              const totalVat = roomVat + servicesSummary.vat;
+              const totalConsTax = roomConsTax + servicesSummary.consTax;
 
               const grandTotal = calculateTotal();
-              const amountPaid = paymentMethod === 'pay_online' ? grandTotal : (paymentMethod === 'pay_ar_deposit' ? (grandTotal * (bookingRules.deposit_percentage / 100)) : 0);
+              const amountPaid = paymentMethod === 'pay_online' ? grandTotal : (paymentMethod === 'pay_ar_deposit' ? (((grandTotal - bookingRules.caution_fee) * (bookingRules.deposit_percentage / 100)) + bookingRules.caution_fee) : 0);
               let remainingPaid = amountPaid;
 
               // Pay room first
@@ -1260,55 +1285,14 @@ const BookingEngine = () => {
                 );
               };
 
-              const allAvailableServices = [...services, ...foodServices];
-              const servicesWithStatus = selectedServices.map(sData => {
-                const service = allAvailableServices.find(s => s.id === sData.service_id);
-                if (!service) return null;
-
-                const isTaxable = service.tax_inclusive !== false;
-                let uPrice = Number(service.base_price_ngn);
-                const isBreakfast = service.name && service.name.toLowerCase().includes('breakfast');
-                if (isBreakfast) {
-                  uPrice = uPrice * totalGuests * totalNights;
-                } else {
-                  if(service.pricing_type === 'per_person') uPrice *= totalGuests;
-                  if(service.pricing_type === 'per_day') uPrice *= totalNights;
-                  if(service.pricing_type === 'per_night') uPrice *= totalNights;
-                }
-
-                const sBasePrice = getServicePrice(service, sData.quantity);
-                const sTax = isTaxable ? sBasePrice * 0.075 : 0;
-                const sTotal = sBasePrice + sTax;
-
-                let servicePaymentStatus = 'unpaid';
-                if (remainingPaid >= sTotal) {
-                  servicePaymentStatus = 'paid';
-                  remainingPaid -= sTotal;
-                } else if (remainingPaid > 0) {
-                  servicePaymentStatus = 'partial';
-                  remainingPaid = 0;
-                }
-
-                return {
-                  service,
-                  sData,
-                  calculatedStatus: servicePaymentStatus,
-                  sBasePrice,
-                  sTax,
-                  sTotal,
-                  uPrice,
-                  isTaxable
-                };
-              }).filter(Boolean);
-
               return (
                 <>
                   <tr>
                     <td className="py-3 px-4">
                       <p className="font-bold text-black">{selectedRoom.name} ({selectedRoom.type})</p>
-                      <p className="text-gray-500 text-[10px] mt-0.5">Accommodation Charges (Rent + Tax)</p>
+                      <p className="text-gray-500 text-[10px] mt-0.5">Accommodation Charges (Rent + Taxes)</p>
                       <p className="text-[9px] text-gray-400">
-                            Rate: ₦{roomPrice.toLocaleString()} {discountVal > 0 && `| Discount: -₦${discountVal.toLocaleString()}`} | Taxable Base: ₦{roomBase.toLocaleString()} | VAT (7.5%): ₦{roomTax.toLocaleString()}
+                            Rate: ₦{roomPrice.toLocaleString()} {discountVal > 0 && `| Discount: -₦${discountVal.toLocaleString()}`} | Taxable Base: ₦{roomBase.toLocaleString()} | VAT (7.5%): ₦{roomVat.toLocaleString()} | Ent. Tax (5%): ₦{roomConsTax.toLocaleString()}
                           </p>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -1318,20 +1302,33 @@ const BookingEngine = () => {
                       ₦{roomTotalWithTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
-                  {servicesWithStatus.map(({ service, sData, calculatedStatus, sBasePrice, sTax, sTotal, uPrice, isTaxable }) => {
+                  {activeServices.map(({ service, sData }) => {
+                    const isTaxable = typeof service.is_taxable !== 'undefined' ? service.is_taxable : true;
+                    const sBasePrice = getServicePrice(service, sData.quantity);
+                    const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+                    const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+                    const sTotal = sBasePrice + sVat + sConsTax;
+
+                    let servicePaymentStatus = 'unpaid';
+                    if (remainingPaid >= sTotal) {
+                      servicePaymentStatus = 'paid';
+                      remainingPaid -= sTotal;
+                    } else if (remainingPaid > 0) {
+                      servicePaymentStatus = 'partial';
+                      remainingPaid = 0;
+                    }
+
                     return (
                       <tr key={sData.service_id}>
                         <td className="py-3 px-4">
                           <p className="font-bold text-black">{service.name}</p>
-                          <p className="text-gray-500 text-[10px] mt-0.5">
-                            Unit Price: ₦{uPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Quantity: {sData.quantity}
-                          </p>
+                          <p className="text-gray-500 text-[10px] mt-0.5">Quantity: {sData.quantity}</p>
                           <p className="text-[9px] text-gray-400">
-                            Base: ₦{sBasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {isTaxable ? `| VAT (7.5%): ₦${sTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '(VAT Exempt)'}
+                            Base: ₦{sBasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {isTaxable ? `| VAT (7.5%): ₦${sVat.toLocaleString()} | Ent. Tax (5%): ₦${sConsTax.toLocaleString()}` : '(Tax Exempt)'}
                           </p>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          {renderStatusBadge(calculatedStatus)}
+                          {renderStatusBadge(servicePaymentStatus)}
                         </td>
                         <td className="py-3 px-4 text-right font-medium text-black">
                           ₦{sTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1339,6 +1336,13 @@ const BookingEngine = () => {
                       </tr>
                     );
                   })}
+                  {bookingRules.caution_fee > 0 && (
+                    <tr>
+                      <td className="py-3 px-4 italic text-gray-500">Refundable Caution Fee</td>
+                      <td className="py-3 px-4 text-center">{renderStatusBadge(remainingPaid >= bookingRules.caution_fee ? 'paid' : (remainingPaid > 0 ? 'partial' : 'unpaid'))}</td>
+                      <td className="py-3 px-4 text-right font-medium">₦{bookingRules.caution_fee.toLocaleString()}</td>
+                    </tr>
+                  )}
                 </>
               );
             })()}
@@ -1348,7 +1352,7 @@ const BookingEngine = () => {
         {/* Totals Summary */}
         {(() => {
           const grandTotal = calculateTotal();
-          const amountPaid = paymentMethod === 'pay_online' ? grandTotal : (paymentMethod === 'pay_ar_deposit' ? (grandTotal * (bookingRules.deposit_percentage / 100)) : 0);
+          const amountPaid = paymentMethod === 'pay_online' ? grandTotal : (paymentMethod === 'pay_ar_deposit' ? (((grandTotal - bookingRules.caution_fee) * (bookingRules.deposit_percentage / 100)) + bookingRules.caution_fee) : 0);
           const balance = Math.max(0, grandTotal - amountPaid);
           
           const roomPrice = roomPriceDetails.totalRoomPrice;
@@ -1428,8 +1432,10 @@ const BookingEngine = () => {
     });
 
     const subtotal = hallPrice + mealsPrice;
-    const tax = subtotal * 0.075;
-    const total = subtotal + tax;
+    const vat = Math.round(subtotal * 0.075);
+    const consTax = Math.round(subtotal * 0.05);
+    const tax = vat + consTax;
+    const total = subtotal + tax + Number(hallCautionFee || 0);
 
     return { hallPrice, mealsPrice, subtotal, tax, total, days, hours };
   }, [bookingMode, selectedHall, dateRange, hallBookingType, hallStartTime, hallEndTime, selectedHallMeals, hallMealOptions, hallParticipants]);

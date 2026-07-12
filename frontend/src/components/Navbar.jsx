@@ -139,6 +139,34 @@ const Navbar = () => {
                   {link.name}
                 </Link>
               ))}
+              {user ? (
+                <>
+                  <Link 
+                    to={user.role === 'guest' ? '/guest' : getDefaultAdminRoute(user.role, hasAccess)} 
+                    onClick={() => setIsOpen(false)}
+                    className="text-base tracking-wide uppercase py-2 border-b border-dark-700 text-gray-300 hover:text-gold-500"
+                  >
+                    Portal
+                  </Link>
+                  <button 
+                    onClick={() => {
+                      setIsOpen(false);
+                      logout();
+                    }}
+                    className="text-base tracking-wide uppercase py-2 border-b border-dark-700 text-red-500 hover:text-red-400 text-left"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <Link 
+                  to="/login" 
+                  onClick={() => setIsOpen(false)}
+                  className="text-base tracking-wide uppercase py-2 border-b border-dark-700 text-gray-300 hover:text-gold-500"
+                >
+                  Login
+                </Link>
+              )}
               <Link to="/booking" onClick={() => setIsOpen(false)} className="btn-primary mt-4 text-center">
                 Book Now
               </Link>

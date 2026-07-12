@@ -123,7 +123,7 @@ const AdminHalls = ({ isFrontOfficeClosed }) => {
   // --- Pricing Calculation for New Booking Form ---
   const bookingSummary = useMemo(() => {
     const selectedHall = halls.find(h => h.id === bookingForm.hall_id);
-    if (!selectedHall) return { hallPrice: 0, mealsPrice: 0, subtotal: 0, tax: 0, total: 0, days: 1, hours: 10 };
+    if (!selectedHall) return { hallPrice: 0, mealsPrice: 0, subtotal: 0, vat: 0, consTax: 0, total: 0, days: 1, hours: 10 };
 
     let days = 1;
     let hours = 10;
@@ -149,10 +149,10 @@ const AdminHalls = ({ isFrontOfficeClosed }) => {
     });
 
     const subtotal = hallPrice + mealsPrice;
-    const tax = subtotal * 0.075;
-    const total = subtotal + tax;
-
-    return { hallPrice, mealsPrice, subtotal, tax, total, days, hours };
+    const vat = Math.round(subtotal * 0.075);
+    const consTax = Math.round(subtotal * 0.05);
+    const total = subtotal + vat + consTax + Number(selectedHall?.caution_fee_ngn || 0);
+    return { hallPrice, mealsPrice, subtotal, vat, consTax, total, days, hours };
   }, [bookingForm, halls, mealOptions]);
 
   // --- Hall Booking Operations ---
@@ -900,10 +900,14 @@ const AdminHalls = ({ isFrontOfficeClosed }) => {
                       <span>Catering meals ({bookingForm.number_of_participants} pax x {bookingSummary.days} days):</span>
                       <span className="font-semibold text-white">₦{bookingSummary.mealsPrice.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <span>VAT (7.5%):</span>
-                      <span className="font-semibold text-white">₦{bookingSummary.tax.toLocaleString()}</span>
-                    </div>
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>VAT (7.5%):</span>
+                        <span className="font-semibold text-white">₦{bookingSummary.vat.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>Ent. Tax (5%):</span>
+                        <span className="font-semibold text-white">₦{bookingSummary.consTax.toLocaleString()}</span>
+                      </div>
                     <div className="border-t border-dark-700/60 pt-2 flex justify-between font-black text-md text-white">
                       <span>Grand Total:</span>
                       <span className="text-gold-500 text-lg">₦{bookingSummary.total.toLocaleString()}</span>

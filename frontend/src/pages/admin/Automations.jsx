@@ -13,9 +13,13 @@ const CHANNELS = [
 
 const TRIGGERS = [
   { id: 'booking_created', name: 'On Booking Creation' },
+  { id: 'check_in_morning', name: 'Morning of Check-in (Reminder)' },
   { id: 'check_in_1day', name: '24 Hours Before Check-in' },
   { id: 'checkout', name: 'On Checkout' },
+  { id: 'checkout_morning', name: '2-3 Hours Before Check-out (9 AM)' },
   { id: 'check_out_1day', name: '24 Hours Before Check-out' },
+  { id: 'clear_bills', name: 'Clear Bills Reminder (Morning of Checkout)' },
+  { id: 'checkout_appreciation', name: 'Appreciation (After Checkout)' },
   { id: 'payment_overdue', name: 'Payment Overdue' },
   { id: 'review_request', name: '3 Days After Checkout (Review)' }
 ];

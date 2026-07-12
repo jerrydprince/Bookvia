@@ -34,15 +34,6 @@ export default defineConfig({
             if (id.includes('moment') || id.includes('react-big-calendar')) {
               return 'vendor-calendar';
             }
-            if (id.includes('recharts')) {
-              return 'vendor-charts';
-            }
-            if (id.includes('framer-motion')) {
-              return 'vendor-motion';
-            }
-            if (id.includes('date-fns')) {
-              return 'vendor-datefns';
-            }
             return 'vendor-core';
           }
         }

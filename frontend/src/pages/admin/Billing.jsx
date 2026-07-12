@@ -1,87 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchAllPaginated } from '../../lib/supabase';
 import { useRealtimeSync } from '../../lib/useRealtimeSync';
 import toast from 'react-hot-toast';
 import { FileText, CreditCard, Download, Search, CheckCircle, RefreshCcw, DollarSign, Wallet, ArrowRightLeft, Printer, Eye, X, AlertTriangle, Wrench, CalendarClock, Landmark } from 'lucide-react';
-import { format, addMonths, addYears } from 'date-fns';
+import { format, addMonths, addYears, differenceInDays } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import Accounting from './Accounting';
+import Pagination from '../../components/Pagination';
 import { triggerAutomationRules, sendResendEmail, sendSMSNotification } from '../../lib/emailService';
 import { usePaystackPayment } from 'react-paystack';
-const PaginationControl = ({ currentPage, totalItems, pageSize, onPageChange }) => {
-  const totalPages = Math.ceil(totalItems / pageSize);
-  if (totalPages <= 1) return null;
 
-  return (
-    <div className="flex items-center justify-between border-t border-dark-700 bg-dark-900/30 px-4 py-3 sm:px-6 mt-4 rounded-b-lg">
-      <div className="flex flex-1 justify-between sm:hidden">
-        <button
-          type="button"
-          disabled={currentPage === 1}
-          onClick={() => onPageChange(currentPage - 1)}
-          className="relative inline-flex items-center rounded-md border border-dark-750 bg-dark-800 px-4 py-2 text-xs font-bold text-gray-300 hover:bg-dark-700 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={currentPage === totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-          className="relative ml-3 inline-flex items-center rounded-md border border-dark-750 bg-dark-800 px-4 py-2 text-xs font-bold text-gray-300 hover:bg-dark-700 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Next
-        </button>
-      </div>
-      <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs text-gray-400">
-            Showing <span className="font-semibold text-white">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
-            <span className="font-semibold text-white">
-              {Math.min(currentPage * pageSize, totalItems)}
-            </span>{' '}
-            of <span className="font-semibold text-white">{totalItems}</span> results
-          </p>
-        </div>
-        <div>
-          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-            <button
-              type="button"
-              disabled={currentPage === 1}
-              onClick={() => onPageChange(currentPage - 1)}
-              className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-dark-750 bg-dark-800 hover:bg-dark-700 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <span className="sr-only">Previous</span>
-              &larr;
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                type="button"
-                key={page}
-                onClick={() => onPageChange(page)}
-                className={`relative inline-flex items-center px-3 py-2 text-xs font-bold ring-1 ring-inset ring-dark-750 cursor-pointer ${
-                  page === currentPage
-                    ? 'z-10 bg-brand-500 text-dark-950 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 font-extrabold'
-                    : 'text-gray-300 bg-dark-800 hover:bg-dark-700 focus:z-20 focus:outline-offset-0'
-                }`}
-              >
-                {page}
-              </button>
-            ))}
-            <button
-              type="button"
-              disabled={currentPage === totalPages}
-              onClick={() => onPageChange(currentPage + 1)}
-              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-dark-750 bg-dark-800 hover:bg-dark-700 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <span className="sr-only">Next</span>
-              &rarr;
-            </button>
-          </nav>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const AdminBilling = ({ isFrontOfficeClosed }) => {
   const { hasAccess } = useAuth();
@@ -169,7 +97,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
   const [currentPageService, setCurrentPageService] = useState(1);
   const [currentPageCheckout, setCurrentPageCheckout] = useState(1);
   const [currentPageSettlements, setCurrentPageSettlements] = useState(1);
-  const pageSize = 10;
+  const pageSize = 50;
 
   useEffect(() => {
     fetchInvoices();
@@ -304,7 +232,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
 
       if (error) throw error;
       
-      const { data: bookingsData } = await supabase.from('bookings').select('amount_paid_ngn');
+      const { data: bookingsData } = await fetchAllPaginated(() => supabase.from('bookings').select('amount_paid_ngn, total_amount_ngn, total_room_price_ngn, total_extras_price_ngn').order('id', { ascending: false }));
 
       setInvoices(data || []);
 
@@ -344,7 +272,14 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
 
       // Calculate Total Revenue using bookings (to match Dashboard exactly)
       if (bookingsData) {
-        revenue = bookingsData.reduce((sum, b) => sum + Number(b.amount_paid_ngn || 0), 0);
+        revenue = bookingsData.reduce((sum, b) => {
+          const paid = Number(b.amount_paid_ngn || 0);
+          const total = Number(b.total_amount_ngn || 1);
+          const roomAndExtras = Number(b.total_room_price_ngn || 0) + Number(b.total_extras_price_ngn || 0);
+          if (paid === 0) return sum;
+          const baseFraction = total > 0 ? (roomAndExtras / total) : 1;
+          return sum + (paid * baseFraction);
+        }, 0);
       }
 
       data?.forEach(inv => {
@@ -587,9 +522,9 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                   <tr><td>Payment Date:</td><td>${formattedDate}</td></tr>
                   <tr><td>Transaction Ref:</td><td style="font-family: monospace; font-weight: bold;">${txnRef}</td></tr>
                   <tr><td>Status:</td><td style="color: ${isFullyPaid ? '#059669' : '#d97706'}; font-weight: bold;">${isFullyPaid ? 'PAID / CONFIRMED' : 'PARTIAL / DEPOSIT'}</td></tr>
-                  ${!isFullyPaid ? `<tr><td>Outstanding Balance:</td><td style="color: #dc2626; font-weight: bold;">₦${(totalAmount - newAmountPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                  ${!isFullyPaid ? `<tr><td>Outstanding Balance:</td><td style="color: #dc2626; font-weight: bold;">₦${(totalAmount - newAmountPaid).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>` : ''}
                 </table>
-                <div class="amount">₦${amountToPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                <div class="amount">₦${amountToPay.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
                 <div class="footer">
                   <p>Authorized and confirmed by Sparkles Apartments Finance Department.</p>
                 </div>
@@ -773,7 +708,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                   <tr><td>Recurrence:</td><td>${reminder.recurrence === 'none' ? 'One-time payment' : reminder.recurrence}</td></tr>
                   <tr><td>Status:</td><td style="color: #059669; font-weight: bold;">PAID</td></tr>
                 </table>
-                <div class="amount">₦${Number(reminder.amount_ngn || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                <div class="amount">₦${Number(reminder.amount_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
                 <div class="footer">
                   <p>Authorized and confirmed by Sparkles Apartments Finance Department.</p>
                   ${reminder.recurrence !== 'none' ? '<p style="color: #f59e0b; font-weight: bold;">Next recurrence reminder has been automatically scheduled.</p>' : ''}
@@ -1019,9 +954,11 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
     }
     const toastId = toast.loading('Confirming stay enhancement payment...');
     try {
-      const isTaxable = req.services?.tax_inclusive !== false;
+      const isTaxable = typeof req.services?.is_taxable !== 'undefined' ? req.services.is_taxable : true;
       const baseAmount = Number(req.total_price_ngn || 0);
-      const taxAmount = isTaxable ? baseAmount * 0.075 : 0;
+      const vatAmount = isTaxable ? Math.round(baseAmount * 0.075) : 0;
+      const consTaxAmount = isTaxable ? Math.round(baseAmount * 0.05) : 0;
+      const taxAmount = vatAmount + consTaxAmount;
       const amount = baseAmount + taxAmount;
 
       let guestProfile = null;
@@ -1421,7 +1358,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
     }
 
     if (paymentMethod === 'paystack') {
-      const pubKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '';
+      const pubKey = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '';
       if (!pubKey) {
         toast.error("Paystack public key is not configured.");
         return;
@@ -1937,10 +1874,10 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
 
   const sortedInvoices = [...filteredInvoices].sort((a, b) => {
     if (sortBy === 'created_at_desc') {
-      return new Date(b.created_at) - new Date(a.created_at);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     }
     if (sortBy === 'created_at_asc') {
-      return new Date(a.created_at) - new Date(b.created_at);
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     }
     if (sortBy === 'status_custom') {
       const getStatusPriority = (status) => {
@@ -1968,7 +1905,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
     if (sortBy === 'amount_desc') {
       return Number(b.total_amount || 0) - Number(a.total_amount || 0);
     }
-    return 0;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
   useEffect(() => {
@@ -2134,12 +2071,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
               </tbody>
             </table>
           </div>
-          <PaginationControl
-            currentPage={currentPageService}
-            totalItems={pendingServicePayments.length}
-            pageSize={pageSize}
-            onPageChange={setCurrentPageService}
-          />
+          <Pagination currentPage={currentPageService} totalPages={Math.ceil((pendingServicePayments.length) / (pageSize))} limit={pageSize} onPageChange={setCurrentPageService} />
         </div>
       )}
 
@@ -2204,12 +2136,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
               </tbody>
             </table>
           </div>
-          <PaginationControl
-            currentPage={currentPageCheckout}
-            totalItems={pendingCheckoutPayments.length}
-            pageSize={pageSize}
-            onPageChange={setCurrentPageCheckout}
-          />
+          <Pagination currentPage={currentPageCheckout} totalPages={Math.ceil((pendingCheckoutPayments.length) / (pageSize))} limit={pageSize} onPageChange={setCurrentPageCheckout} />
         </div>
       )}
 
@@ -2286,7 +2213,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                     <td className="p-4 font-bold text-white">₦{Number(inv.total_amount).toLocaleString()}</td>
                     <td className="p-4">
                       {discount > 0 ? (
-                        <span className="text-yellow-500 font-semibold">-₦{discount.toLocaleString()}</span>
+                        <span className="text-yellow-500 font-semibold">-₦{discount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       ) : (
                         <span className="text-gray-500">-</span>
                       )}
@@ -2388,12 +2315,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
             </tbody>
           </table>
         </div>
-        <PaginationControl
-          currentPage={currentPageInvoices}
-          totalItems={sortedInvoices.length}
-          pageSize={pageSize}
-          onPageChange={setCurrentPageInvoices}
-        />
+        <Pagination currentPage={currentPageInvoices} totalPages={Math.ceil((sortedInvoices.length) / (pageSize))} limit={pageSize} onPageChange={setCurrentPageInvoices} />
       </div>
     </div>
   )}
@@ -2517,12 +2439,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                 </tbody>
               </table>
             </div>
-            <PaginationControl
-              currentPage={currentPagePayouts}
-              totalItems={specialistPayouts.filter(p => specialistPayoutTab === 'pending' ? p.payment_status === 'approved' : p.payment_status === 'paid').length}
-              pageSize={pageSize}
-              onPageChange={setCurrentPagePayouts}
-            />
+            <Pagination currentPage={currentPagePayouts} totalPages={Math.ceil((specialistPayouts.filter(p => specialistPayoutTab === 'pending' ? p.payment_status === 'approved' : p.payment_status === 'paid').length) / (pageSize))} limit={pageSize} onPageChange={setCurrentPagePayouts} />
           </div>
 
           {/* Reminder / Subscription Payouts */}
@@ -2782,12 +2699,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
               </table>
             </div>
             
-            <PaginationControl
-              currentPage={currentPageSettlements}
-              totalItems={filteredSettlements.length}
-              pageSize={pageSize}
-              onPageChange={setCurrentPageSettlements}
-            />
+            <Pagination currentPage={currentPageSettlements} totalPages={Math.ceil((filteredSettlements.length) / (pageSize))} limit={pageSize} onPageChange={setCurrentPageSettlements} />
           </div>
         </div>
       )}
@@ -3133,7 +3045,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                             {renderStatusBadge(hb.payment_status)}
                           </td>
                           <td className="py-4 px-4 text-right font-medium text-white print:text-black font-mono">
-                            ₦{Number(hb.total_hall_price_ngn || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            ₦{Number(hb.total_hall_price_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </td>
                         </tr>
                         {hallBookingMeals.map((meal) => (
@@ -3153,7 +3065,7 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                               {renderStatusBadge(hb.payment_status)}
                             </td>
                             <td className="py-4 px-4 text-right font-medium text-white print:text-black font-mono">
-                              ₦{Number(meal.total_price_ngn || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              ₦{Number(meal.total_price_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                             </td>
                           </tr>
                         ))}
@@ -3163,10 +3075,11 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
 
                   const booking = activeInvoiceModal.bookings || {};
                   const roomPrice = Number(booking.total_room_price_ngn || activeInvoiceModal.subtotal || 0);
-                  const discount = Number(booking.discount_amount_ngn || 0);
-                  const roomBase = Math.max(0, roomPrice - discount);
-                  const roomTax = roomBase * 0.075;
-                  const roomTotalWithTax = roomBase + roomTax;
+                  const discountVal = Number(booking.discount_amount_ngn || 0);
+                  const roomBase = Math.max(0, roomPrice - discountVal);
+                  const roomVat = Math.round(roomBase * 0.075);
+                  const roomConsTax = Math.round(roomBase * 0.05);
+                  const roomTotalWithTax = roomBase + roomVat + roomConsTax;
 
                   const amountPaidTotal = Number(activeInvoiceModal.amount_paid || 0);
                   let remainingPaid = amountPaidTotal;
@@ -3186,9 +3099,11 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
 
                   // Calculate status for each service sequentially
                   const servicesWithStatus = activeServices.map(extra => {
-                    const isTaxable = extra.services?.tax_inclusive !== false;
+                    const isTaxable = typeof extra.services?.is_taxable !== 'undefined' ? extra.services.is_taxable : true;
                     const sBasePrice = Number(extra.total_price_ngn || 0);
-                    const sTax = isTaxable ? sBasePrice * 0.075 : 0;
+                    const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+                    const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+                    const sTax = sVat + sConsTax;
                     const sTotal = sBasePrice + sTax;
                     const uPrice = Number(extra.unit_price_ngn || (extra.quantity > 0 ? sBasePrice / extra.quantity : sBasePrice));
 
@@ -3220,17 +3135,17 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                             Accommodation Charges (Rent + Tax) {booking.rooms ? `(${booking.rooms.name} - Room ${booking.rooms.room_number})` : ''}
                           </p>
                           <p className="text-gray-400 print:text-gray-500 text-xs mt-0.5">
-                            Check-in: {booking.check_in_date || 'N/A'} | Check-out: {booking.check_out_date || 'N/A'}
+                            Check-in: {booking.check_in_date || 'N/A'} | Check-out: {booking.check_out_date || 'N/A'} {booking.check_in_date && booking.check_out_date && `| Nights Booked: ${Math.max(1, differenceInDays(new Date(booking.check_out_date), new Date(booking.check_in_date)))}`}
                           </p>
                           <p className="text-[10px] text-gray-500 mt-1">
-                            Rate: ₦{roomPrice.toLocaleString()} {discount > 0 && `| Discount: -₦${discount.toLocaleString()}`} | Taxable Base: ₦{roomBase.toLocaleString()} | VAT (7.5%): ₦{roomTax.toLocaleString()}
+                            Rate: ₦{roomPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} {discountVal > 0 && `| Discount: -₦${discountVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} | Taxable Base: ₦{roomBase.toLocaleString(undefined, { maximumFractionDigits: 0 })} | VAT (7.5%): ₦{roomVat.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Ent. Tax (5%): ₦{roomConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </p>
                         </td>
                         <td className="py-4 px-4 text-center">
                           {renderStatusBadge(roomPaymentStatus)}
                         </td>
                         <td className="py-4 px-4 text-right font-medium text-white print:text-black">
-                          ₦{roomTotalWithTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ₦{roomTotalWithTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </td>
                       </tr>
                       {servicesWithStatus.map((extra) => {
@@ -3241,17 +3156,17 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
                                 {extra.services?.name || 'Guest Service'}
                               </p>
                               <p className="text-gray-400 print:text-gray-500 text-xs mt-0.5">
-                                Unit Price: ₦{extra.uPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Quantity: {extra.quantity}
+                                Unit Price: ₦{extra.uPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Quantity: {extra.quantity}
                               </p>
                               <p className="text-[10px] text-gray-500 mt-1">
-                                Base: ₦{extra.sBasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {extra.isTaxable ? `| VAT (7.5%): ₦${extra.sTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '(VAT Exempt)'}
+                                Base: ₦{extra.sBasePrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} {extra.isTaxable ? `| VAT (7.5%): ₦${extra.sVat.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Ent. Tax (5%): ₦${extra.sConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '(VAT Exempt)'}
                               </p>
                             </td>
                             <td className="py-4 px-4 text-center">
                               {renderStatusBadge(extra.calculatedStatus)}
                             </td>
                             <td className="py-4 px-4 text-right font-medium text-white print:text-black">
-                              ₦{extra.sTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              ₦{extra.sTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                             </td>
                           </tr>
                         );
@@ -3267,40 +3182,73 @@ const AdminBilling = ({ isFrontOfficeClosed }) => {
               const totalAmount = Number(activeInvoiceModal.total_amount || 0);
               const amountPaid = Number(activeInvoiceModal.amount_paid || 0);
               const balance = Math.max(0, totalAmount - amountPaid);
-              const discount = Number(activeInvoiceModal.bookings?.discount_amount_ngn || 0);
+              
+              // Calculate actual Subtotal (Sum of Room Rate + Services Rate)
+              const booking = activeInvoiceModal.bookings || {};
+              const roomPrice = Number(booking.total_room_price_ngn || activeInvoiceModal.subtotal || 0);
+              const discount = Number(booking.discount_amount_ngn || 0);
+              const discountVal = Math.max(0, Math.min(roomPrice, discount));
+              const roomBase = Math.max(0, roomPrice - discountVal);
+              const roomVat = Math.round(roomBase * 0.075);
+              const roomConsTax = Math.round(roomBase * 0.05);
+              
+              const activeServices = activeInvoiceModal.booking_services?.filter(s => s.status !== 'cancelled') || [];
+              const servicesSummary = activeServices.reduce((acc, extra) => {
+                const isTaxable = typeof extra.services?.is_taxable !== 'undefined' ? extra.services.is_taxable : true;
+                const sBasePrice = Number(extra.total_price_ngn || 0);
+                const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+                const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+                return { base: acc.base + sBasePrice, vat: acc.vat + sVat, consTax: acc.consTax + sConsTax };
+              }, { base: 0, vat: 0, consTax: 0 });
+
+              const totalRate = roomPrice + servicesSummary.base;
+              const totalVat = roomVat + servicesSummary.vat;
+              const totalConsTax = roomConsTax + servicesSummary.consTax;
 
               return (
                 <div className="flex justify-end">
                   <div className="w-64 space-y-3 text-sm">
                     <div className="flex justify-between text-gray-400 print:text-gray-600">
-                      <span>Subtotal</span>
+                      <span>Subtotal (Base)</span>
                       <span className="text-white print:text-black font-medium">
-                        ₦{(totalAmount + discount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ₦{totalRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </span>
                     </div>
-                    {discount > 0 && (
+                    {discountVal > 0 && (
                       <div className="flex justify-between text-yellow-500 print:text-yellow-600 font-medium">
                         <span>Room Discount</span>
                         <span>
-                          -₦{discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          -₦{discountVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </span>
                       </div>
                     )}
+                    <div className="flex justify-between text-gray-400 print:text-gray-600 font-medium">
+                      <span>VAT (7.5%)</span>
+                      <span className="text-white print:text-black font-medium">
+                        ₦{totalVat.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-gray-400 print:text-gray-600 font-medium">
+                      <span>Entertainment Tax (5%)</span>
+                      <span className="text-white print:text-black font-medium">
+                        ₦{totalConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
                     <div className="flex justify-between font-bold text-lg border-t border-dark-700 print:border-gray-200 pt-2 text-white print:text-black">
                       <span>Total Due</span>
-                      <span>₦{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span>₦{totalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                     </div>
                     
                     {amountPaid > 0 && (
                       <div className="flex justify-between text-green-400 print:text-green-600 font-medium pt-2">
                         <span>Amount Paid</span>
-                        <span>₦{amountPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span>₦{amountPaid.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </div>
                     )}
                     
                     <div className="flex justify-between font-black text-xl border-t-2 border-dark-700 print:border-gray-300 pt-2 text-brand-500 print:text-brand-600">
                       <span>Balance</span>
-                      <span>₦{balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span>₦{balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                     </div>
                   </div>
                 </div>

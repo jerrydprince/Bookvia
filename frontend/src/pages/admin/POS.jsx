@@ -18,6 +18,7 @@ const POS = () => {
   
   // States
   const [services, setServices] = useState([]);
+  const [storeItems, setStoreItems] = useState([]);
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -359,8 +360,9 @@ const POS = () => {
   };
 
   const handleViewHistoryReceipt = (txn) => {
-    const sub = txn.amount / 1.075; // compute subtotal backward
-    const vat = txn.amount - sub;
+    const sub = txn.amount / 1.125; // compute subtotal backward
+    const vat = sub * 0.075;
+    const consTax = sub * 0.05;
     
     const receiptItems = txn.type === 'Walk-in Sale' ? [
       {
@@ -377,7 +379,8 @@ const POS = () => {
       outlet,
       items: receiptItems,
       subtotal: sub,
-      taxAmount: vat,
+      vatAmount: vat,
+      consTaxAmount: consTax,
       grandTotal: txn.amount,
       mode: txn.type === 'Walk-in Sale' ? 'Walk-in Customer' : `Room Charge`,
       method: txn.method,
@@ -503,8 +506,7 @@ const POS = () => {
   const fetchPOSData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      // Fetch dynamic contact settings, services, and checked-in guests in parallel
-      const [settingsRes, servicesRes, guestsRes] = await Promise.all([
+      const [settingsRes, servicesRes, guestsRes, storeItemsRes] = await Promise.all([
         supabase
           .from('system_settings')
           .select('setting_key, setting_value')
@@ -517,12 +519,14 @@ const POS = () => {
         supabase
           .from('bookings')
           .select('*, profiles(first_name, last_name, phone), rooms(room_number, name), group_accounts(id, name)')
-          .eq('status', 'checked_in')
+          .eq('status', 'checked_in'),
+        supabase.from('store_items').select('id, name, quantity, store_type')
       ]);
 
       if (settingsRes.error) throw settingsRes.error;
       if (servicesRes.error) throw servicesRes.error;
       if (guestsRes.error) throw guestsRes.error;
+        if (storeItemsRes && !storeItemsRes.error) setStoreItems(storeItemsRes.data);
 
       // Map settings
       const settingsMap = (settingsRes.data || []).reduce((acc, curr) => {
@@ -609,12 +613,34 @@ const POS = () => {
   };
 
   // Calculations
+  const vatRate = 0.075; // 7.5% VAT
+  const consTaxRate = 0.05; // 5% Cons Tax
+
+  const calculateVAT = () => {
+    return cart.reduce((sum, item) => {
+      if (item.is_taxable !== false && item.tax_inclusive !== true) {
+        return sum + (item.base_price_ngn * item.quantity * vatRate);
+      }
+      return sum;
+    }, 0);
+  };
+  
+  const calculateConsTax = () => {
+    return cart.reduce((sum, item) => {
+      if (item.is_taxable !== false && item.tax_inclusive !== true) {
+        return sum + (item.base_price_ngn * item.quantity * consTaxRate);
+      }
+      return sum;
+    }, 0);
+  };
+
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + (item.base_price_ngn * item.quantity), 0);
   }, [cart]);
 
-  const taxRate = 0.075; // 7.5% VAT
-  const taxAmount = subtotal * taxRate;
+  const vatAmount = Math.round(calculateVAT());
+  const consTaxAmount = Math.round(calculateConsTax());
+  const taxAmount = vatAmount + consTaxAmount;
   const grandTotal = subtotal + taxAmount;
 
   // Add dynamic menu item handler (Comments requirement)
@@ -639,7 +665,8 @@ const POS = () => {
         base_price_ngn: Number(newService.base_price_ngn),
         pricing_type: "fixed",
         is_active: true,
-        internal_notes: newService.outlet || outlet
+        internal_notes: newService.outlet || outlet,
+        linked_store_item_id: newService.linked_store_item_id || null
       };
 
       const { data, error } = await supabase.from('services').insert([payload]).select();
@@ -647,7 +674,7 @@ const POS = () => {
 
       toast.success(`✓ Service "${newService.name}" created successfully!`);
       setIsAddModalOpen(false);
-      setNewService({ name: '', description: '', base_price_ngn: '', outlet: outlet });
+      setNewService({ name: '', description: '', base_price_ngn: '', outlet: outlet, linked_store_item_id: '' });
       fetchPOSData();
     } catch (err) {
       console.error("Error creating F&B item:", err);
@@ -692,6 +719,35 @@ const POS = () => {
 
         toast.success(`Walk-in sale settled! Grand Total: ₦${grandTotal.toLocaleString()}`);
         
+
+        // --- Auto-Deduct Inventory ---
+        for (const item of cart) {
+          if (item.linked_store_item_id) {
+            try {
+              // 1. Fetch current stock
+              const { data: stockItem } = await supabase.from('store_items').select('quantity, name').eq('id', item.linked_store_item_id).single();
+              if (stockItem) {
+                const newQty = stockItem.quantity - item.quantity;
+                // 2. Update stock
+                await supabase.from('store_items').update({ quantity: newQty }).eq('id', item.linked_store_item_id);
+                // 3. Log it
+                await supabase.from('store_logs').insert([{
+                  item_id: item.linked_store_item_id,
+                  transaction_type: 'outgoing_release',
+                  quantity: item.quantity,
+                  receiver_name: 'POS System',
+                  department: outlet,
+                  notes: `Auto-deduction from POS Sale (${txnRef})`,
+                  status: 'approved_released',
+                  store_type: outlet,
+                  approved_by: 'System'
+                }]);
+              }
+            } catch (err) {
+              console.error("Failed to auto-deduct inventory for item:", item.name, err);
+            }
+          }
+        }
         // Load active receipt view
         setActiveReceipt({
           txnRef,
@@ -699,7 +755,8 @@ const POS = () => {
           outlet,
           items: [...cart],
           subtotal,
-          taxAmount,
+          vatAmount,
+          consTaxAmount,
           grandTotal,
           mode: 'Walk-in Customer',
           method: paymentMethod.toUpperCase(),
@@ -749,6 +806,35 @@ const POS = () => {
           toast.success(`Charged ₦${grandTotal.toLocaleString()} successfully to Room ${selectedGuest.rooms?.room_number}! Check-out locked until cleared.`);
         }
 
+
+        // --- Auto-Deduct Inventory ---
+        for (const item of cart) {
+          if (item.linked_store_item_id) {
+            try {
+              // 1. Fetch current stock
+              const { data: stockItem } = await supabase.from('store_items').select('quantity, name').eq('id', item.linked_store_item_id).single();
+              if (stockItem) {
+                const newQty = stockItem.quantity - item.quantity;
+                // 2. Update stock
+                await supabase.from('store_items').update({ quantity: newQty }).eq('id', item.linked_store_item_id);
+                // 3. Log it
+                await supabase.from('store_logs').insert([{
+                  item_id: item.linked_store_item_id,
+                  transaction_type: 'outgoing_release',
+                  quantity: item.quantity,
+                  receiver_name: 'POS System',
+                  department: outlet,
+                  notes: `Auto-deduction from POS Sale (${txnRef})`,
+                  status: 'approved_released',
+                  store_type: outlet,
+                  approved_by: 'System'
+                }]);
+              }
+            } catch (err) {
+              console.error("Failed to auto-deduct inventory for item:", item.name, err);
+            }
+          }
+        }
         // Load active receipt view
         setActiveReceipt({
           txnRef,
@@ -756,7 +842,8 @@ const POS = () => {
           outlet,
           items: [...cart],
           subtotal,
-          taxAmount,
+          vatAmount,
+          consTaxAmount,
           grandTotal,
           mode: isBilledToGroup 
             ? `Corporate Charge - ${selectedGuest.group_accounts?.name}` 
@@ -1107,10 +1194,21 @@ const POS = () => {
                         </div>
                       </div>
                     </div>
-                    <p className="text-gray-500 text-xs mt-2 line-clamp-3 leading-relaxed">
-                      {product.description || "Premium service selection."}
-                    </p>
-                  </div>
+                      <p className="text-gray-500 text-xs mt-2 line-clamp-3 leading-relaxed">
+                        {product.description || "Premium service selection."}
+                      </p>
+                      {product.linked_store_item_id && (() => {
+                        const stockItem = storeItems?.find(s => s.id === product.linked_store_item_id);
+                        if (!stockItem) return null;
+                        return (
+                          <div className="mt-2 text-[10px] font-bold">
+                            <span className={stockItem.quantity > 0 ? "text-green-500 bg-green-500/10 px-2 py-0.5 rounded" : "text-red-500 bg-red-500/10 px-2 py-0.5 rounded"}>
+                              {stockItem.quantity > 0 ? `Stock: ${stockItem.quantity}` : 'Out of Stock'}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   <div className="flex justify-between items-center border-t border-dark-700/30 pt-3 mt-3">
                     <span className="text-base font-black text-white group-hover:scale-105 transition-transform duration-300">
                       ₦{product.base_price_ngn.toLocaleString()}
@@ -1311,7 +1409,13 @@ const POS = () => {
               <span className="flex items-center gap-1">
                 VAT <span className="bg-dark-800 px-1 py-0.5 rounded text-[8px] font-bold">7.5%</span>
               </span>
-              <span className="font-bold text-white">₦{taxAmount.toLocaleString()}</span>
+              <span className="font-bold text-white">₦{vatAmount.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="flex items-center gap-1">
+                Ent. Tax <span className="bg-dark-800 px-1 py-0.5 rounded text-[8px] font-bold">5%</span>
+              </span>
+              <span className="font-bold text-white">₦{consTaxAmount.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-base font-black text-white pt-2 border-t border-dark-700/30">
               <span>Grand Total</span>
@@ -1618,10 +1722,14 @@ const POS = () => {
                   <span>SUBTOTAL:</span>
                   <span>₦{activeReceipt.subtotal.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>VAT (7.5%):</span>
-                  <span>₦{activeReceipt.taxAmount.toLocaleString()}</span>
-                </div>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span>VAT (7.5%):</span>
+                    <span>₦{Number(activeReceipt.vatAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] mb-2">
+                    <span>Ent. Tax (5%):</span>
+                    <span>₦{Number(activeReceipt.consTaxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
                 <div className="flex justify-between text-base font-black border-t border-dashed border-gray-300 pt-1 mt-1">
                   <span>TOTAL PAID:</span>
                   <span>₦{activeReceipt.grandTotal.toLocaleString()}</span>

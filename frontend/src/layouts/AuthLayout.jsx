@@ -42,7 +42,7 @@ const AuthLayout = () => {
       {/* Background styling */}
       <div className="absolute inset-0 z-0">
         <img 
-          src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80" 
+          src="https://pjmdlifojfwoviyugjwq.supabase.co/storage/v1/object/public/gallery_images/uploads/10bbab97-7d89-4a30-86dc-8ffd9daec4da.jpeg" 
           alt="Luxury background" 
           className="w-full h-full object-cover opacity-20"
         />

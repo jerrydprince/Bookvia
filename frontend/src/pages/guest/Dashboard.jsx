@@ -13,6 +13,7 @@ const GuestDashboard = () => {
   const [bookings, setBookings] = useState([]);
   const [crmGuest, setCrmGuest] = useState(null);
   const [serviceRequests, setServiceRequests] = useState([]);
+  const [paystackPublicKey, setPaystackPublicKey] = useState('');
   const [selectedPaymentRequest, setSelectedPaymentRequest] = useState(null);
   const [nextStayImageUrl, setNextStayImageUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,9 +44,7 @@ const GuestDashboard = () => {
   const fetchGuestData = async () => {
     setLoading(true);
     try {
-      // Execute core queries in parallel to drastically improve loading speeds (Promise.all)
-      // Exclude heavy rooms(image_url) Base64 strings from historical list to prevent downloading megabytes of data
-      const [bookingsResult, crmResult] = await Promise.all([
+      const [bookingsResult, crmResult, settingsResult] = await Promise.all([
         supabase
           .from('bookings')
           .select('id, booking_reference, check_in_date, check_out_date, status, payment_status, total_amount_ngn, guest_id, guest_email, rooms(id, name, room_number)')
@@ -55,8 +54,17 @@ const GuestDashboard = () => {
           .from('crm_guests')
           .select('*')
           .eq('email', user.email.toLowerCase())
+          .maybeSingle(),
+        supabase
+          .from('system_settings')
+          .select('setting_key, setting_value')
+          .eq('setting_key', 'paystack_public')
           .maybeSingle()
       ]);
+      
+      if (settingsResult.data?.setting_value) {
+          setPaystackPublicKey(settingsResult.data.setting_value);
+      }
 
       // Handle Bookings Results
       if (bookingsResult.error) {
@@ -125,7 +133,7 @@ const GuestDashboard = () => {
         config: {
           email: user?.email || '',
           amount: Math.round(Number(selectedPaymentRequest.total_price_ngn) * 100), // in kobo
-          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_eaffa6e288470d49a1846f37feabe3a3eb3f30d8',
+          publicKey: paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_eaffa6e288470d49a1846f37feabe3a3eb3f30d8',
           currency: 'NGN'
         },
         onSuccess: (reference) => handleServicePaymentSuccess(reference),

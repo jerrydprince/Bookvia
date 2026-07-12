@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, CalendarDays, DollarSign, TrendingUp, MoreHorizontal, ArrowUpRight, Clock, LogIn, LogOut, Sparkles, Shirt, Wrench, Archive, ClipboardList } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchAllPaginated } from '../../lib/supabase';
 import { format } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import { getDefaultAdminRoute } from '../../utils/routes';
@@ -122,7 +122,7 @@ const AdminDashboard = () => {
       : Promise.resolve({ count: 0 });
 
     const revenueDataPromise = (hasAccess('Accounting') || hasAccess('Finance & Billing'))
-      ? supabase.from('bookings').select('amount_paid_ngn')
+      ? fetchAllPaginated(() => supabase.from('bookings').select('amount_paid_ngn, total_amount_ngn, total_room_price_ngn, total_extras_price_ngn, status').order('id', { ascending: false }))
       : Promise.resolve({ data: [] });
 
     const arrivalsCountPromise = (hasAccess('Reservations') || hasAccess('Front Desk'))
@@ -199,7 +199,15 @@ const AdminDashboard = () => {
         arrivalsCount = arrivalsCountRes.count || 0;
         departuresCount = departuresCountRes.count || 0;
         activeGuestsCount = checkedInCountRes.count || 0;
-        totalRevenue = (revenueDataRes.data || []).reduce((sum, b) => sum + Number(b.amount_paid_ngn || 0), 0);
+        totalRevenue = (revenueDataRes.data || []).reduce((sum, b) => {
+          if (b.status === 'cancelled') return sum;
+          const paid = Number(b.amount_paid_ngn || 0);
+          const total = Number(b.total_amount_ngn || 1);
+          const roomAndExtras = Number(b.total_room_price_ngn || 0) + Number(b.total_extras_price_ngn || 0);
+          if (paid === 0) return sum;
+          const baseFraction = total > 0 ? (roomAndExtras / total) : 1;
+          return sum + (paid * baseFraction);
+        }, 0);
         laundryCount = laundryRes.count || 0;
         maintenanceCount = maintenanceRes.count || 0;
         requisitionsCount = storeRes.count || 0;
@@ -268,7 +276,7 @@ const AdminDashboard = () => {
     statCards.push({
       title: "Total Revenue",
       value: `₦${stats.revenue.toLocaleString()}`,
-      icon: <DollarSign size={24} />,
+      icon: <span className="font-bold text-2xl leading-none flex items-center justify-center">₦</span>,
       trend: "12.5%",
       glowColor: "from-brand-500/20",
       delayClass: "delay-100"

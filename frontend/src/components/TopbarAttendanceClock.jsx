@@ -11,6 +11,10 @@ const TopbarAttendanceClock = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeShift, setActiveShift] = useState(null);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overridePin, setOverridePin] = useState('');
+  const [systemPin, setSystemPin] = useState('123456');
+  const [isCheckingOthers, setIsCheckingOthers] = useState(false);
   const [elapsed, setElapsed] = useState('');
   const [notes, setNotes] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -44,6 +48,12 @@ const TopbarAttendanceClock = () => {
   }, [user]);
 
   // Event listener for attendance updates elsewhere to sync automatically
+  useEffect(() => {
+    supabase.from('system_settings').select('setting_value').eq('setting_key', 'manager_override_pin').maybeSingle().then(({data}) => {
+      if (data && data.setting_value) setSystemPin(data.setting_value);
+    });
+  }, []);
+
   useEffect(() => {
     const handleSync = () => {
       fetchActiveShift();
@@ -144,8 +154,28 @@ const TopbarAttendanceClock = () => {
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = async (forceOverride = false) => {
     if (!activeShift) return;
+    
+    // Check for other active staff if not admin/super_admin and not overridden
+    const isManager = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'manager';
+    if (!isManager && forceOverride !== true) {
+      setLoading(true);
+      const { data: others, error: checkErr } = await supabase
+        .from('staff_attendance')
+        .select('id')
+        .is('clock_out', null)
+        .neq('staff_id', profile?.id);
+        
+      setLoading(false);
+      
+      if (!checkErr && others && others.length === 0) {
+        // No one else is clocked in! Block the handover.
+        setShowOverrideModal(true);
+        return; // Stop execution
+      }
+    }
+    
     setLoading(true);
     const toastId = toast.loading("Clocking out shift...");
     try {
@@ -195,7 +225,7 @@ const TopbarAttendanceClock = () => {
       {/* Pulse Status Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-all duration-300 backdrop-blur-md ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 md:gap-2.5 md:px-4 md:py-2.5 rounded-xl border transition-all duration-300 backdrop-blur-md ${
           activeShift 
             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50' 
             : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/50'
@@ -210,8 +240,18 @@ const TopbarAttendanceClock = () => {
           }`}></span>
         </span>
         
-        <span className="text-sm font-bold tracking-wide select-none font-mono">
-          {activeShift ? `On Shift: ${elapsed || '00:00:00'}` : 'Off Shift / Clock In'}
+        <span className="text-[10px] md:text-sm font-bold tracking-wide select-none font-mono">
+          {activeShift ? (
+            <>
+              <span className="hidden sm:inline">On Shift: </span>
+              {elapsed || '00:00:00'}
+            </>
+          ) : (
+            <>
+              <span className="sm:hidden">Clock In</span>
+              <span className="hidden sm:inline">Off Shift / Clock In</span>
+            </>
+          )}
         </span>
       </button>
 
@@ -223,7 +263,7 @@ const TopbarAttendanceClock = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-12 z-50 w-80 glass-panel bg-dark-800/95 border border-dark-700/80 backdrop-blur-lg shadow-2xl rounded-2xl p-5 overflow-hidden text-white"
+            className="fixed left-4 right-4 top-20 sm:absolute sm:left-auto sm:right-0 sm:top-[110%] z-[100] sm:w-80 glass-panel bg-dark-800/95 border border-dark-700/80 backdrop-blur-lg shadow-2xl rounded-2xl p-5 overflow-hidden text-white"
           >
             {/* Ambient gold/green accent circle inside popover */}
             <div className={`absolute -top-12 -right-12 w-28 h-28 rounded-full blur-3xl opacity-20 transition-colors duration-500 ${
@@ -327,8 +367,74 @@ const TopbarAttendanceClock = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Shift Clock-Out Override Modal */}
+      {showOverrideModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[999] p-4">
+          <div className="bg-dark-900 border border-dark-700 w-full max-w-md rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-rose-600"></div>
+            
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 border border-red-500/20">
+                <LogOut size={28} />
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-black text-white">System Handover Warning</h3>
+                <p className="text-sm text-gray-400 mt-2">
+                  You are the <strong>only active staff member</strong> currently clocked into the system. Clocking out now will leave the hotel unstaffed.
+                </p>
+                <p className="text-xs text-brand-400 mt-2 font-bold uppercase tracking-wider">
+                  Manager override required to proceed
+                </p>
+              </div>
+
+              <div className="w-full pt-4 space-y-3">
+                <div className="text-left">
+                  <label className="text-xs font-bold text-gray-400 mb-1 block">Authorization PIN</label>
+                  <input 
+                    type="password" 
+                    placeholder="Enter 6-digit System PIN"
+                    value={overridePin}
+                    onChange={e => setOverridePin(e.target.value)}
+                    className="w-full bg-dark-950 border border-dark-700/80 p-3 rounded-xl text-center text-xl tracking-widest text-white outline-none focus:border-red-500 transition-colors"
+                    maxLength={6}
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowOverrideModal(false);
+                      setOverridePin('');
+                    }}
+                    className="flex-1 bg-dark-800 hover:bg-dark-700 text-white font-bold py-3 px-4 rounded-xl text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (overridePin === systemPin) {
+                        setShowOverrideModal(false);
+                        setOverridePin('');
+                        handleClockOut(true);
+                      } else {
+                        toast.error('Invalid Authorization PIN');
+                      }
+                    }}
+                    className="flex-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold py-3 px-4 rounded-xl text-sm transition-all shadow-lg shadow-red-500/20 active:scale-[0.98]"
+                  >
+                    Force Clock Out
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default TopbarAttendanceClock;
+

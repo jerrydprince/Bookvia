@@ -1,0 +1,1 @@
+const fs = require('fs'); let code = fs.readFileSync('src/layouts/AdminLayout.jsx', 'utf8'); code = code.split('<Link to="/admin').join('<Link onClick={closeMobileMenu} to="/admin'); fs.writeFileSync('src/layouts/AdminLayout.jsx', code);

@@ -15,12 +15,12 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: Only super_admin can perform data wipes.';
   END IF;
 
-  DELETE FROM public.deleted_payments_audit WHERE true;
-  DELETE FROM public.daily_closures WHERE true;
-  DELETE FROM public.refund_settlements WHERE true;
-  DELETE FROM public.payments WHERE true;
-  DELETE FROM public.staff_salaries WHERE true;
-  DELETE FROM public.expenses WHERE true;
+  DELETE FROM public.deleted_payments_audit;
+  DELETE FROM public.daily_closures;
+  DELETE FROM public.refund_settlements;
+  DELETE FROM public.payments;
+  DELETE FROM public.staff_salaries;
+  DELETE FROM public.expenses;
 END;
 $$;
 
@@ -36,14 +36,14 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: Only super_admin can perform data wipes.';
   END IF;
 
-  DELETE FROM public.booking_services WHERE true;
-  DELETE FROM public.invoices WHERE true;
-  DELETE FROM public.bookings WHERE true;
+  DELETE FROM public.booking_services;
+  DELETE FROM public.invoices;
+  DELETE FROM public.bookings;
   
-  DELETE FROM public.hall_booking_meals WHERE true;
-  DELETE FROM public.hall_bookings WHERE true;
+  DELETE FROM public.hall_booking_meals;
+  DELETE FROM public.hall_bookings;
   
-  DELETE FROM public.group_accounts WHERE true;
+  DELETE FROM public.group_accounts;
 END;
 $$;
 
@@ -59,9 +59,9 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: Only super_admin can perform data wipes.';
   END IF;
 
-  DELETE FROM public.maintenance_payments WHERE true;
-  DELETE FROM public.maintenance_purchases WHERE true;
-  DELETE FROM public.maintenance_tickets WHERE true;
+  DELETE FROM public.maintenance_payments;
+  DELETE FROM public.maintenance_purchases;
+  DELETE FROM public.maintenance_tickets;
 END;
 $$;
 
@@ -78,8 +78,8 @@ BEGIN
   END IF;
 
   -- Delete staff attendances and leave applications to avoid FK issues
-  DELETE FROM public.staff_attendance WHERE true;
-  DELETE FROM public.leave_applications WHERE true;
+  DELETE FROM public.staff_attendance;
+  DELETE FROM public.leave_applications;
 
   -- Delete all profiles that are NOT super_admin AND NOT guest
   -- This includes managers, receptionists, accountants, etc.
@@ -108,13 +108,12 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: Only super_admin can perform data wipes.';
   END IF;
 
-  DELETE FROM public.store_logs WHERE true;
-  DELETE FROM public.departmental_reports WHERE true;
-  DELETE FROM public.duty_reports WHERE true;
-  DELETE FROM public.notification_logs WHERE true;
-  DELETE FROM public.system_logs WHERE true;
-  DELETE FROM public.lost_found_items WHERE true;
-  -- DELETE FROM public.audit_logs WHERE true; -- Table may not exist yet
+  DELETE FROM public.store_logs;
+  DELETE FROM public.departmental_reports;
+  DELETE FROM public.duty_reports;
+  DELETE FROM public.notification_logs;
+  DELETE FROM public.system_logs;
+  DELETE FROM public.audit_logs;
 END;
 $$;
 
@@ -130,9 +129,9 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: Only super_admin can perform data wipes.';
   END IF;
 
-  DELETE FROM public.communication_logs WHERE true;
-  DELETE FROM public.ar_accounts WHERE true;
-  DELETE FROM public.crm_guests WHERE true;
+  DELETE FROM public.communication_logs;
+  DELETE FROM public.ar_accounts;
+  DELETE FROM public.crm_guests;
   
   -- Delete guest profiles from auth.users (cascades to profiles)
   DELETE FROM auth.users 
@@ -166,6 +165,6 @@ BEGIN
   PERFORM public.reset_guest_directory_data(caller_id);
   
   -- Reset room statuses back to clean & available
-  UPDATE public.rooms SET status = 'available' WHERE true;
+  UPDATE public.rooms SET status = 'available', housekeeping_status = 'clean';
 END;
 $$;

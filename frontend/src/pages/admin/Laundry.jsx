@@ -3,6 +3,8 @@ import { supabase } from '../../lib/supabase';
 import { useRealtimeSync } from '../../lib/useRealtimeSync';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+import LaundryItemsManager from './LaundryItemsManager';
+import LaundryDynamicSelector from '../../components/admin/LaundryDynamicSelector';
 import { 
   Shirt, Sparkles, User, Users, Plus, DollarSign, Clock, 
   CheckCircle, Search, RefreshCw, X, CreditCard, Droplets, 
@@ -128,6 +130,13 @@ const AdminLaundry = () => {
   const [launderingNotes, setLaunderingNotes] = useState('');
   const [isSubmittingCharge, setIsSubmittingCharge] = useState(false);
   const [chargeToGroup, setChargeToGroup] = useState(false);
+  const [inhouseSelectedItems, setInhouseSelectedItems] = useState([]);
+  
+  const handleInhouseItemsChange = (items, totalQty, totalAmt, desc) => {
+    setInhouseSelectedItems(items);
+    setCustomCharge(totalAmt);
+    setLaunderingNotes(desc);
+  };
 
   // Walkin Registration Form State
   const [showWalkinForm, setShowWalkinForm] = useState(false);
@@ -141,7 +150,21 @@ const AdminLaundry = () => {
     paymentMethod: 'cash',
     isPaid: true
   });
+  const [walkinSelectedItems, setWalkinSelectedItems] = useState([]);
+  
+  const handleWalkinItemsChange = (items, totalQty, totalAmt, desc) => {
+    setWalkinSelectedItems(items);
+    setWalkinForm(prev => ({
+      ...prev,
+      quantity: totalQty,
+      chargeAmount: totalAmt,
+      itemsDescription: desc
+    }));
+  };
   const [isRegisteringWalkin, setIsRegisteringWalkin] = useState(false);
+
+  // Price List states
+  const [laundryItems, setLaundryItems] = useState([]);
 
   // Close of Day states
   const [departmentalClosures, setDepartmentalClosures] = useState([]);
@@ -400,6 +423,15 @@ const AdminLaundry = () => {
       if (bookErr) throw bookErr;
       setActiveBookings(checkedInBookings || []);
 
+      // 5. Fetch Laundry Items Price List
+      const { data: priceListItems, error: itemsErr } = await supabase
+        .from('laundry_items')
+        .select('*')
+        .order('cloth_type', { ascending: true });
+      if (!itemsErr && priceListItems) {
+        setLaundryItems(priceListItems);
+      }
+
     } catch (err) {
       console.error('Failed to load laundry data:', err);
       toast.error('Failed to retrieve laundry registries');
@@ -434,6 +466,7 @@ const AdminLaundry = () => {
     setActiveProcessingOrder(order);
     setCustomCharge('');
     setChargeToGroup(order.bookings?.bill_to_group || false);
+    setInhouseSelectedItems([]);
     
     // Extract original guest notes
     const guestInstructions = order.notes?.replace('laundry_request:', '').trim() || '';
@@ -583,6 +616,7 @@ const AdminLaundry = () => {
         paymentMethod: 'cash',
         isPaid: true
       });
+      setWalkinSelectedItems([]);
       fetchLaundryData();
     } catch (err) {
       console.error(err);
@@ -811,6 +845,12 @@ const AdminLaundry = () => {
         >
           <CheckCircle size={16} /> Folio Charging History
         </button>
+        <button 
+          onClick={() => setActiveTab('pricelist')} 
+          className={`pb-3 px-4 font-bold flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap text-sm ${activeTab === 'pricelist' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-white'}`}
+        >
+          <DollarSign size={16} /> Price List Management
+        </button>
       </div>
 
       {/* Tab Panels */}
@@ -1037,6 +1077,15 @@ const AdminLaundry = () => {
             </div>
           )}
 
+          {/* TAB 4: PRICE LIST MANAGEMENT */}
+          {activeTab === 'pricelist' && (
+            <LaundryItemsManager 
+              items={laundryItems} 
+              onItemsChanged={() => fetchLaundryData(false)} 
+              hasAccess={hasAccess('Laundry_manager') || hasAccess('Laundry')} 
+            />
+          )}
+
           {/* TAB 3: CHARGING HISTORY */}
           {activeTab === 'history' && (
             <div className="space-y-4 animate-in fade-in duration-300">
@@ -1156,6 +1205,18 @@ const AdminLaundry = () => {
                         Group Account
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Dynamic Item Selector */}
+                {laundryItems.length > 0 && (
+                  <div className="bg-dark-900/40 p-3 rounded-lg border border-dark-700">
+                    <label className="block text-xs font-semibold text-blue-400 mb-2">Dynamic Item Selection (Calculates Total)</label>
+                    <LaundryDynamicSelector 
+                      laundryItems={laundryItems}
+                      value={inhouseSelectedItems}
+                      onChange={handleInhouseItemsChange}
+                    />
                   </div>
                 )}
 
@@ -1279,7 +1340,21 @@ const AdminLaundry = () => {
 
                 {/* Laundry Details */}
                 <hr className="border-dark-700/50" />
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-blue-400">2. Laundry details</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[10px] font-bold uppercase tracking-wider text-blue-400">2. Laundry details</h3>
+                </div>
+                
+                {laundryItems.length > 0 && (
+                  <div className="mb-4 bg-dark-900/40 p-3 rounded-lg border border-dark-700">
+                    <label className="block text-xs font-semibold text-blue-400 mb-2">Dynamic Item Selection (Calculates Total)</label>
+                    <LaundryDynamicSelector 
+                      laundryItems={laundryItems}
+                      value={walkinSelectedItems}
+                      onChange={handleWalkinItemsChange}
+                    />
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-semibold text-gray-400 mb-1">Clothes Description list *</label>
@@ -1303,9 +1378,9 @@ const AdminLaundry = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-400 mb-1">Custom laundering Charge (₦) *</label>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1">Total laundering Charge (₦) *</label>
                       <input 
-                        type="number" min="1" required
+                        type="number" min="0" required
                         placeholder="e.g. 15000"
                         value={walkinForm.chargeAmount}
                         onChange={e => setWalkinForm({...walkinForm, chargeAmount: e.target.value})}

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { sendTermiiSms } from './smsService';
 
 /**
  * Resend API Client-Side Wrapper
@@ -322,26 +323,16 @@ export const triggerAutomationRules = async (triggerEvent, bookingData) => {
  */
 export const sendSMSNotification = async ({ to, message }) => {
   try {
-    console.log(`[SMS Client] Dispatching SMS to: ${to} via backend proxy...`);
-    const API_BASE = import.meta.env.VITE_API_URL || '/api';
-    const response = await fetch(`${API_BASE}/sms/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ to, message })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      return { success: true, id: data.messageId, simulated: !!data.simulated };
+    console.log(`[SMS Client] Dispatching Termii SMS to: ${to}`);
+    const result = await sendTermiiSms(to, message);
+    if (result && result.message_id) {
+      return { success: true, id: result.message_id };
+    } else {
+      console.warn(`[SMS Client] Termii SMS failed`);
+      return { success: false, error: 'Termii SMS dispatch failed' };
     }
-
-    const errText = await response.text();
-    console.warn(`[SMS Client] Backend SMS proxy failed: ${errText}`);
-    return { success: false, error: errText };
   } catch (e) {
-    console.error(`[SMS Client] Backend SMS proxy unreachable: ${e.message}`);
+    console.error(`[SMS Client] Termii SMS error: ${e.message}`);
     return { success: false, error: e.message };
   }
 };

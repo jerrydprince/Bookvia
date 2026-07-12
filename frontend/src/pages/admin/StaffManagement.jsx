@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { format, differenceInDays } from 'date-fns';
 import { useAuth, validateStrongPassword } from '../../context/AuthContext';
 import { useRealtimeSync } from '../../lib/useRealtimeSync';
+import { sendResendEmail } from '../../lib/emailService';
 
 // Secondary Auth client for silent signup
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -129,6 +130,8 @@ const DEFAULT_MODULES = [
   'Front Desk',
   'Front Desk - Create Booking & Check-in',
   'Front Desk - Override Room Rates & Invoicing',
+  'Front Desk - Extend Stay',
+  'Front Desk - Waive Balance',
 
   // Housekeeping
   'Housekeeping',
@@ -280,7 +283,11 @@ const getRolePermissionDefault = (roleId, permissionName) => {
     case 'Front Desk - Create Booking & Check-in':
       return ['front_desk_lead', 'receptionist_manager', 'receptionist'].includes(roleId);
     
+    case 'Front Desk - Extend Stay':
+      return ['front_desk_lead', 'receptionist_manager', 'receptionist'].includes(roleId);
+
     case 'Front Desk - Override Room Rates & Invoicing':
+    case 'Front Desk - Waive Balance':
       return ['front_desk_lead', 'receptionist_manager'].includes(roleId);
     
     case 'Housekeeping':
@@ -1078,8 +1085,9 @@ const AdminStaffManagement = () => {
   const [loadingStructures, setLoadingStructures] = useState(false);
 
   const paginatedStaff = useMemo(() => {
+    const filteredStaff = staff.filter(s => s.role !== 'super_admin');
     const start = (currentPageStaff - 1) * pageSize;
-    return staff.slice(start, start + pageSize);
+    return filteredStaff.slice(start, start + pageSize);
   }, [staff, currentPageStaff]);
 
   const paginatedRoleStructures = useMemo(() => {
@@ -1245,7 +1253,7 @@ const AdminStaffManagement = () => {
         }
       });
       
-      const seededRoles = currentAllRoles.map(role => {
+      const seededRoles = currentAllRoles.filter(role => role.id !== 'super_admin').map(role => {
         const dbMatch = (data || []).find(d => d.role === role.id);
         let list = roleDedsMap[role.id] || [];
         if (typeof list === 'string') {
@@ -1637,6 +1645,32 @@ const AdminStaffManagement = () => {
             user_id: profile.id, log_type: 'activity', action: `Promoted guest account to staff: ${newStaffForm.first_name} ${newStaffForm.last_name}`, module: 'System'
           });
 
+          // Send onboarding email with credentials
+          if (newStaffForm.email && newStaffForm.password) {
+            try {
+              await sendResendEmail({
+                to: newStaffForm.email,
+                subject: 'Welcome to the Sparkles Apartments Team!',
+                html: `
+                  <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                    <h2>Welcome aboard, ${newStaffForm.first_name}!</h2>
+                    <p>We are thrilled to have you join our team as a <strong>${newStaffForm.role}</strong>.</p>
+                    <p>Your staff account has been provisioned successfully. Below are your login credentials for the portal:</p>
+                    <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                      <p style="margin: 0 0 10px 0;"><strong>Login URL:</strong> <a href="https://sparklesapartments.ng/login">https://sparklesapartments.ng/login</a></p>
+                      <p style="margin: 0 0 10px 0;"><strong>Email / Username:</strong> ${newStaffForm.email}</p>
+                      <p style="margin: 0;"><strong>Password:</strong> ${newStaffForm.password}</p>
+                    </div>
+                    <p>Please log in to change your password immediately upon your first access.</p>
+                    <p>Best Regards,<br/>Sparkles Apartments Management</p>
+                  </div>
+                `
+              });
+            } catch (err) {
+              console.error("Failed to send onboarding email:", err);
+            }
+          }
+
           toast.success('Staff account successfully promoted and activated!', { id: loadingToast });
           setShowAddStaff(false);
           setNewStaffForm({ 
@@ -1724,6 +1758,34 @@ const AdminStaffManagement = () => {
       await supabase.from('system_logs').insert({
         user_id: profile.id, log_type: 'activity', action: `Registered new staff member: ${newStaffForm.first_name}`, module: 'System'
       });
+
+      // 5. Send onboarding email with credentials
+      if (newStaffForm.email && newStaffForm.password) {
+        try {
+          await sendResendEmail({
+            to: newStaffForm.email,
+            subject: 'Welcome to the Sparkles Apartments Team!',
+            html: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <h2>Welcome aboard, ${newStaffForm.first_name}!</h2>
+                <p>We are thrilled to have you join our team as a <strong>${newStaffForm.role}</strong>.</p>
+                <p>Your staff account has been provisioned successfully. Below are your login credentials for the portal:</p>
+                <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                  <p style="margin: 0 0 10px 0;"><strong>Login URL:</strong> <a href="https://sparklesapartments.ng/login">https://sparklesapartments.ng/login</a></p>
+                  <p style="margin: 0 0 10px 0;"><strong>Email / Username:</strong> ${newStaffForm.email}</p>
+                  <p style="margin: 0;"><strong>Password:</strong> ${newStaffForm.password}</p>
+                </div>
+                <p>Please log in to change your password immediately upon your first access.</p>
+                <p>Best Regards,<br/>Sparkles Apartments Management</p>
+              </div>
+            `
+          });
+          toast.success('Onboarding email dispatched.');
+        } catch (emailErr) {
+          console.error("Failed to send onboarding email:", emailErr);
+          toast.error("Account created, but failed to send the onboarding email.");
+        }
+      }
 
       toast.success('Staff added successfully!', { id: loadingToast });
       setShowAddStaff(false);
@@ -2586,7 +2648,7 @@ const AdminStaffManagement = () => {
                       type="text" 
                       placeholder="Search employee..." 
                       value={shiftAuditSearch}
-                      onChange={e => setShiftAuditSearch(e.target.value)}
+                      onChange={e => { setShiftAuditSearch(e.target.value); setCurrentPageStaff(1); }}
                       className="w-full bg-dark-950 border border-dark-750 text-white text-xs pl-8 pr-3 py-1.5 rounded-lg outline-none focus:border-brand-500 transition-all font-semibold"
                     />
                   </div>
@@ -2912,6 +2974,10 @@ const AdminStaffManagement = () => {
                         </td>
                         <td className="p-4 text-gray-300">
                           {(() => {
+                            if (s.role === 'super_admin') {
+                              return <span className="text-gray-500 italic text-[11px] font-bold tracking-wider">N/A</span>;
+                            }
+                            
                             const base = parseFloat(s.base_salary) || 0;
                             const allow = parseFloat(s.allowances) || 0;
                             const ded = parseFloat(s.deductions) || 0;
@@ -2997,7 +3063,7 @@ const AdminStaffManagement = () => {
               </div>
               <PaginationControl
                 currentPage={currentPageStaff}
-                totalItems={staff.length}
+                totalItems={staff.filter(s => s.role !== 'super_admin').length}
                 pageSize={pageSize}
                 onPageChange={setCurrentPageStaff}
               />
@@ -5329,7 +5395,7 @@ const AdminStaffManagement = () => {
                   </p>
 
                   <div className="space-y-4">
-                    {staff.map((s) => {
+                    {staff.filter(s => s.role !== 'super_admin').map((s) => {
                       const roleLabel = ROLES.find(r => r.id === s.role)?.label || s.role.replace(/_/g, ' ');
                       return (
                         <div key={s.id} className="bg-dark-950/40 border border-dark-750/70 p-5 rounded-2xl hover:border-dark-700 transition-all flex flex-col space-y-4">

@@ -7,7 +7,8 @@ const Footer = () => {
   const [contactInfo, setContactInfo] = useState({
     address: '123 Luxury Avenue, Victoria Island, Lagos, Nigeria', // Default fallback
     phone: '+234 800 LUXE APT',
-    email: 'reservations@luxe.com'
+    email: 'reservations@luxe.com',
+    logo: localStorage.getItem('contact_logo') || ''
   });
 
   useEffect(() => {
@@ -19,7 +20,7 @@ const Footer = () => {
       const { data, error } = await supabase
         .from('system_settings')
         .select('setting_key, setting_value')
-        .in('setting_key', ['contact_address', 'contact_phone', 'contact_email']);
+        .in('setting_key', ['contact_address', 'contact_phone', 'contact_email', 'contact_logo']);
         
       if (!error && data) {
         const settingsMap = data.reduce((acc, curr) => {
@@ -30,13 +31,16 @@ const Footer = () => {
         setContactInfo(prev => ({
           address: settingsMap.contact_address || prev.address,
           phone: settingsMap.contact_phone || prev.phone,
-          email: settingsMap.contact_email || prev.email
+          email: settingsMap.contact_email || prev.email,
+          logo: settingsMap.contact_logo || prev.logo
         }));
       }
     } catch (e) {
       console.error("Failed to load footer settings:", e);
     }
   };
+
+  console.log("FOOTER LOGO:", contactInfo.logo ? contactInfo.logo.substring(0, 50) + '...' : 'EMPTY');
 
   return (
     <footer className="bg-dark-900 pt-20 pb-10 border-t border-dark-700">
@@ -45,15 +49,21 @@ const Footer = () => {
           {/* Brand */}
           <div>
             <Link to="/" className="flex items-center gap-3 mb-6 inline-flex">
-              <svg width="45" height="45" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M50 10 L10 90 L35 90 L60 40 Z" fill="#DF6853"/>
-                <path d="M40 90 L90 90 L75 60 L50 90 Z" fill="#DF6853"/>
-                <path d="M25 15 L28 25 L38 28 L28 31 L25 41 L22 31 L12 28 L22 25 Z" fill="#DF6853"/>
-              </svg>
-              <div className="flex flex-col justify-center">
-                <span className="text-[22px] font-sans font-extrabold text-[#4A4A4A] leading-none tracking-wide">SPARKLES</span>
-                <span className="text-[11px] font-sans text-[#6B7280] leading-tight tracking-[0.25em] mt-1">APARTMENTS</span>
-              </div>
+              {contactInfo.logo && contactInfo.logo !== '/logo.png' ? (
+                <img src={contactInfo.logo} alt="Sparkles Apartments" className="h-10 max-w-[180px] object-contain" />
+              ) : (
+                <>
+                  <svg width="45" height="45" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M50 10 L10 90 L35 90 L60 40 Z" fill="#DF6853"/>
+                    <path d="M40 90 L90 90 L75 60 L50 90 Z" fill="#DF6853"/>
+                    <path d="M25 15 L28 25 L38 28 L28 31 L25 41 L22 31 L12 28 L22 25 Z" fill="#DF6853"/>
+                  </svg>
+                  <div className="flex flex-col justify-center">
+                    <span className="text-[22px] font-sans font-extrabold text-white leading-none tracking-wide">SPARKLES</span>
+                    <span className="text-[11px] font-sans text-gray-400 leading-tight tracking-[0.25em] mt-1">APARTMENTS</span>
+                  </div>
+                </>
+              )}
             </Link>
             <p className="text-gray-400 mb-6 leading-relaxed">
               Experience unparalleled luxury and comfort in our premium shortlet apartments designed for the elite.

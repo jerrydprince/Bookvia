@@ -47,6 +47,7 @@ const AdminRooms = () => {
   // Modals
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isWalkinModalOpen, setIsWalkinModalOpen] = useState(false);
+  const [isBedDropdownOpen, setIsBedDropdownOpen] = useState(false);
   
   const [isEdit, setIsEdit] = useState(false);
   const [currentRoom, setCurrentRoom] = useState(null);
@@ -102,17 +103,34 @@ const AdminRooms = () => {
         ? supabase.from('cms_pages').select('content').eq('slug', 'system_categories').single()
         : Promise.resolve({ data: null });
 
+      // Fetch active bookings to dynamically compute occupancy status
+      const activeBookingsPromise = (activeTab === 'inventory' || force)
+        ? supabase.from('bookings').select('room_id').eq('status', 'checked_in')
+        : Promise.resolve({ data: [] });
+
       // 2. Fetch in parallel to prevent sequential database query waterfall (latency is cut by up to 66%)
-      const [roomsRes, hallsRes, propertiesRes, cmsRes] = await Promise.all([
+      const [roomsRes, hallsRes, propertiesRes, cmsRes, activeBookingsRes] = await Promise.all([
         roomsPromise,
         hallsPromise,
         propertiesPromise,
-        cmsPromise
+        cmsPromise,
+        activeBookingsPromise
       ]);
 
       // 3. Batch process responses safely
       if (roomsRes && roomsRes.data) {
-        setRooms(roomsRes.data);
+        let fetchedRooms = roomsRes.data;
+        // Dynamically override status to 'occupied' if there is an active checked-in booking
+        if (activeBookingsRes && activeBookingsRes.data && activeBookingsRes.data.length > 0) {
+          const occupiedRoomIds = new Set(activeBookingsRes.data.map(b => b.room_id));
+          fetchedRooms = fetchedRooms.map(room => {
+            if (occupiedRoomIds.has(room.id)) {
+              return { ...room, status: 'occupied' };
+            }
+            return room;
+          });
+        }
+        setRooms(fetchedRooms);
       }
 
       if (hallsRes && hallsRes.data) {
@@ -376,7 +394,15 @@ const AdminRooms = () => {
     if (isBulkAdd && !isEdit) {
       const payloads = [];
       for(let i=1; i<=bulkCount; i++) {
-        const generatedNum = bulkName.trim() ? `${bulkName.trim()} ${bulkPrefix}${i}` : `${bulkPrefix}${i}`;
+        let suffix = i;
+        let prefixText = bulkPrefix;
+        const match = bulkPrefix.match(/(\d+)$/);
+        if (match) {
+          prefixText = bulkPrefix.slice(0, match.index);
+          suffix = parseInt(match[1]) + i - 1;
+        }
+        
+        const generatedNum = bulkName.trim() ? `${bulkName.trim()} ${prefixText}${suffix}` : `${prefixText}${suffix}`;
         const payload = buildRoomPayload(generatedNum);
         if (bulkName.trim()) {
           payload.name = generatedNum;
@@ -384,18 +410,29 @@ const AdminRooms = () => {
         payloads.push(payload);
       }
       toast.loading(`Creating ${bulkCount} rooms...`, { id: 'bulk' });
-      const { data, error } = await supabase.from('rooms').insert(payloads).select('id, room_number, name, type, property_id, capacity, size_sqm, base_price_ngn, status, properties(name)');
-      if (error) toast.error(error.message, { id: 'bulk' });
-      else {
+      
+      try {
+        const chunkSize = 50;
+        let allData = [];
+        
+        for (let i = 0; i < payloads.length; i += chunkSize) {
+          const chunk = payloads.slice(i, i + chunkSize);
+          const { data, error } = await supabase.from('rooms').insert(chunk).select('id, room_number, name, type, property_id, capacity, size_sqm, base_price_ngn, status, properties(name)');
+          if (error) throw error;
+          if (data) allData = [...allData, ...data];
+        }
+        
         toast.success(`${bulkCount} rooms created!`, { id: 'bulk' });
         clearCache('rooms');
         clearCache('roomDetails');
         setIsRoomModalOpen(false);
-        if (data) {
-          setRooms(prev => [...prev, ...data].sort((a,b) => a.room_number.localeCompare(b.room_number)));
+        if (allData.length > 0) {
+          setRooms(prev => [...prev, ...allData].sort((a,b) => a.room_number.localeCompare(b.room_number)));
         } else {
           fetchData(true);
         }
+      } catch (error) {
+        toast.error(error.message, { id: 'bulk' });
       }
     } else {
       const payload = buildRoomPayload(newRoom.room_number);
@@ -498,40 +535,52 @@ const AdminRooms = () => {
 
   const getBedConfigurationOptions = () => {
     const sub = newRoom.sub_category || '';
+    let options = [];
     if (sub.includes('4')) {
-      return [
+      options = [
         { value: '4 King Beds', label: '4 King Beds' },
         { value: '4 Queen Beds', label: '4 Queen Beds' },
         { value: '3 King Beds, 2 Twin Beds', label: '3 King Beds, 2 Twin Beds' },
         { value: '2 King Beds, 4 Twin Beds', label: '2 King Beds, 4 Twin Beds' }
       ];
     } else if (sub.includes('3')) {
-      return [
+      options = [
         { value: '3 King Beds', label: '3 King Beds' },
         { value: '3 Queen Beds', label: '3 Queen Beds' },
         { value: '2 King Beds, 2 Twin Beds', label: '2 King Beds, 2 Twin Beds' },
         { value: '1 King Bed, 4 Twin Beds', label: '1 King Bed, 4 Twin Beds' }
       ];
     } else if (sub.includes('2')) {
-      return [
+      options = [
         { value: '2 King Beds', label: '2 King Beds' },
         { value: '2 Queen Beds', label: '2 Queen Beds' },
         { value: '1 King Bed, 2 Twin Beds', label: '1 King Bed, 2 Twin Beds' },
         { value: '4 Twin Beds', label: '4 Twin Beds' }
       ];
     } else if (sub.includes('1')) {
-      return [
+      options = [
         { value: '1 King Bed', label: '1 King Bed' },
         { value: '1 Queen Bed', label: '1 Queen Bed' },
         { value: '2 Twin Beds', label: '2 Twin Beds' }
       ];
+    } else {
+      options = [
+        { value: '1 King Bed', label: '1 King Bed' },
+        { value: '1 Queen Bed', label: '1 Queen Bed' },
+        { value: '2 Twin Beds', label: '2 Twin Beds' },
+        { value: '1 King, 1 Sofa Bed', label: '1 King, 1 Sofa Bed' }
+      ];
     }
-    return [
-      { value: '1 King Bed', label: '1 King Bed' },
-      { value: '1 Queen Bed', label: '1 Queen Bed' },
-      { value: '2 Twin Beds', label: '2 Twin Beds' },
-      { value: '1 King, 1 Sofa Bed', label: '1 King, 1 Sofa Bed' }
-    ];
+    
+    // Add '2 Queen Beds' globally, except for flats
+    if (!sub.toLowerCase().includes('flat')) {
+      options.push({ value: '2 Queen Beds', label: '2 Queen Beds' });
+    }
+    
+    // Always add Green Area as a selectable option
+    options.push({ value: 'Green Area', label: 'Green Area' });
+    
+    return options;
   };
 
   const [optimizingExisting, setOptimizingExisting] = useState(false);
@@ -1139,7 +1188,7 @@ const AdminRooms = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider">Number Prefix (e.g. "10")</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider">Starting Number (e.g. 100 or A-101)</label>
                     <input 
                       type="text" 
                       required 
@@ -1153,7 +1202,7 @@ const AdminRooms = () => {
                     <input 
                       type="number" 
                       min="1" 
-                      max="50" 
+                      max="1000" 
                       required 
                       value={bulkCount} 
                       onChange={e => setBulkCount(parseInt(e.target.value))} 
@@ -1218,16 +1267,47 @@ const AdminRooms = () => {
                   <input type="number" value={newRoom.size_sqm} onChange={e => setNewRoom({...newRoom, size_sqm: parseInt(e.target.value)})} className="w-full bg-dark-900 border border-dark-700 p-2 text-white outline-none focus:border-gold-500" />
                 </div>
                 <div className="col-span-2 md:col-span-1">
-                  <label className="block text-sm text-gray-400 mb-1">Price/Night (Base)</label>
+                  <label className="block text-sm text-gray-400 mb-1">Price/Night (Base) <span className="text-gray-500 text-[10px]">(Exclusive of 12.5% Tax)</span></label>
                   <input type="number" step="any" required value={newRoom.base_price_ngn} onChange={e => setNewRoom({...newRoom, base_price_ngn: parseFloat(e.target.value) || 0})} className="w-full bg-dark-900 border border-dark-700 p-2 text-white outline-none focus:border-gold-500" />
                 </div>
                 <div className="col-span-2 md:col-span-1">
                   <label className="block text-sm text-gray-400 mb-1">Bed Configuration</label>
-                  <select required value={newRoom.bed_configuration} onChange={e => setNewRoom({...newRoom, bed_configuration: e.target.value})} className="w-full bg-dark-900 border border-dark-700 p-2 text-white outline-none focus:border-gold-500">
-                    {getBedConfigurationOptions().map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <div 
+                      className="w-full bg-dark-900 border border-dark-700 p-2 text-white outline-none focus:border-gold-500 cursor-pointer flex justify-between items-center"
+                      onClick={() => setIsBedDropdownOpen(!isBedDropdownOpen)}
+                    >
+                      <span className="truncate">{newRoom.bed_configuration || 'Select Configuration...'}</span>
+                      <span className="text-gray-500 text-xs">▼</span>
+                    </div>
+                    {isBedDropdownOpen && (
+                      <div className="absolute top-full left-0 w-full mt-1 bg-dark-800 border border-dark-700 z-50 max-h-60 overflow-y-auto shadow-2xl">
+                        {getBedConfigurationOptions().map(opt => {
+                          const selectedVals = newRoom.bed_configuration ? newRoom.bed_configuration.split(', ').map(v => v.trim()) : [];
+                          const isSelected = selectedVals.includes(opt.value);
+                          return (
+                            <label key={opt.value} className="flex items-center p-3 hover:bg-dark-700 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected}
+                                onChange={() => {
+                                  let newSelected;
+                                  if (isSelected) {
+                                    newSelected = selectedVals.filter(v => v !== opt.value);
+                                  } else {
+                                    newSelected = [...selectedVals, opt.value];
+                                  }
+                                  setNewRoom({...newRoom, bed_configuration: newSelected.join(', ')});
+                                }}
+                                className="mr-3 accent-gold-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-sm">{opt.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

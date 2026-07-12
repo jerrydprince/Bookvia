@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import AdminReservations from './Reservations';
 import LostFound from './LostFound';
 import { triggerAutomationRules } from '../../lib/emailService';
+import { sendTermiiSms } from '../../lib/smsService';
 import AdminBilling from './Billing';
 import AdminHalls from './AdminHalls';
 
@@ -193,6 +194,7 @@ const AdminFrontDesk = () => {
   const [housekeepingTasks, setHousekeepingTasks] = useState([]);
   const [maintenanceTickets, setMaintenanceTickets] = useState([]);
   const [matrixFilter, setMatrixFilter] = useState('all'); // all, occupied, clean, dirty, maintenance
+  const [matrixSearchTerm, setMatrixSearchTerm] = useState('');
   const [activeInspection, setActiveInspection] = useState(null);
   const [checklist, setChecklist] = useState({ bed: false, bathroom: false, trash: false, floors: false, restock: false });
   const [preselectedRoomId, setPreselectedRoomId] = useState(null);
@@ -200,12 +202,17 @@ const AdminFrontDesk = () => {
   // Advanced Modals & Check-in / Visitor states
   const [activeCheckIn, setActiveCheckIn] = useState(null); // stores booking obj
   const [activeCheckOut, setActiveCheckOut] = useState(null);
+  const [activeExtendStay, setActiveExtendStay] = useState(null);
+  const [newExtendCheckoutDate, setNewExtendCheckoutDate] = useState('');
+  const [isExtendingStay, setIsExtendingStay] = useState(false);
   const [activeNoShowModal, setActiveNoShowModal] = useState(null);
   const [checkoutSettleMode, setCheckoutSettleMode] = useState('ar_wallet');
+  const [cautionFeeOutcome, setCautionFeeOutcome] = useState('refund');
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState('ar');
   const [checkoutARProfile, setCheckoutARProfile] = useState(null);
   const [pendingCheckoutPayments, setPendingCheckoutPayments] = useState([]);
   const [checkoutProcessing, setCheckoutProcessing] = useState(false);
+  const [checkoutNoDamages, setCheckoutNoDamages] = useState(true);
   const [unpaidServices, setUnpaidServices] = useState([]);
   const [loadingUnpaidServices, setLoadingUnpaidServices] = useState(false);
   const [activeVisitorRegistration, setActiveVisitorRegistration] = useState(null);
@@ -468,6 +475,8 @@ const AdminFrontDesk = () => {
   const [checkInStep, setCheckInStep] = useState(1);
   const [idVerified, setIdVerified] = useState(false);
   const [keyIssued, setKeyIssued] = useState(false);
+  const [encodingCheckInKey, setEncodingCheckInKey] = useState(false);
+  const [encodingStatusCheckIn, setEncodingStatusCheckIn] = useState(null);
   const [signatureData, setSignatureData] = useState(null);
   
   // Visitor State
@@ -1359,6 +1368,49 @@ const AdminFrontDesk = () => {
     setCheckInStep(1);
   };
 
+  const mockUSBEncode = async () => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(`UID-${Math.random().toString(36).substring(2, 10).toUpperCase()}`);
+      }, 1500);
+    });
+  };
+
+  const handleEncodeCheckInKey = async () => {
+    if (!activeCheckIn) return;
+    
+    setEncodingCheckInKey(true);
+    setEncodingStatusCheckIn('encoding');
+    
+    try {
+      const newUid = await mockUSBEncode();
+      const validFrom = new Date();
+      const validTo = new Date(activeCheckIn.check_out_date);
+
+      const { error } = await supabase.from('keycards').insert([{
+        rfid_uid: newUid,
+        card_type: 'guest',
+        room_id: activeCheckIn.room_id,
+        guest_id: activeCheckIn.guest_id,
+        valid_from: validFrom.toISOString(),
+        valid_to: validTo.toISOString(),
+        status: 'active'
+      }]);
+
+      if (error) throw error;
+      
+      setEncodingStatusCheckIn('success');
+      setKeyIssued(true); // Automatically mark step as completed
+      toast.success("RFID Card successfully encoded and issued.");
+    } catch (err) {
+      console.error(err);
+      setEncodingStatusCheckIn('error');
+      toast.error("Failed to encode RFID Card.");
+    } finally {
+      setEncodingCheckInKey(false);
+    }
+  };
+
   const handleFinalizeCheckIn = async () => {
     if (!idVerified || !keyIssued || !signatureData) {
       return toast.error("Please complete all verification steps including signature.");
@@ -1388,6 +1440,10 @@ const AdminFrontDesk = () => {
           .single();
         if (fullBooking) {
           triggerAutomationRules('check_in', fullBooking);
+          const guestPhone = fullBooking.profiles?.phone || fullBooking.guest_phone;
+          if (guestPhone) {
+            sendTermiiSms(guestPhone, `Welcome to Sparkles Apartments! You have been successfully checked in to Room ${fullBooking.rooms?.room_number || ''}. Have a great stay!`);
+          }
         }
       } catch (autoErr) {
         console.warn("Check-in automation trigger failed:", autoErr);
@@ -1763,14 +1819,55 @@ const AdminFrontDesk = () => {
       // Award loyalty points
       await awardLoyaltyPoints(activeCheckOut, actualNights, newTotal);
 
+      // --- CAUTION FEE LOGIC ---
+      let finalCautionStatus = activeCheckOut.caution_fee_status;
+      if (activeCheckOut.caution_fee_ngn > 0 && activeCheckOut.caution_fee_status === 'held') {
+        finalCautionStatus = cautionFeeOutcome;
+        
+        if (cautionFeeOutcome === 'refund') {
+          // Log refund in expenses
+          await supabase.from('expenses').insert([{
+            category: 'Refunds & Reversals',
+            description: `Refund of Caution Fee Deposit for Booking Ref: ${activeCheckOut.booking_reference} (No Damages)`,
+            amount: activeCheckOut.caution_fee_ngn,
+            payment_method: 'bank_transfer',
+            paid_to: activeCheckOut.guest_name,
+            status: 'paid'
+          }]);
+          toast.success(`Caution Fee of ₦${activeCheckOut.caution_fee_ngn.toLocaleString()} marked as Refunded.`);
+        } else if (cautionFeeOutcome === 'forfeit') {
+          // Log revenue in payments
+          await supabase.from('payments').insert([{
+            booking_id: activeCheckOut.id,
+            amount: activeCheckOut.caution_fee_ngn,
+            method: 'cash', // Assumed collected and kept
+            status: 'completed',
+            notes: `Forfeited Caution Fee Revenue (Damages/Fines) | Ref: ${activeCheckOut.booking_reference}`,
+            transaction_ref: `CAUTION-REV-${Date.now()}`
+          }]);
+          toast.success(`Caution Fee of ₦${activeCheckOut.caution_fee_ngn.toLocaleString()} forfeited and recorded as revenue.`);
+        }
+      }
+      // -------------------------
+
       await supabase.from('bookings').update({ 
         status: 'checked_out',
         check_out_date: finalCheckOutDate,
         total_room_price_ngn: actualRoomPrice,
         total_amount_ngn: newTotal,
         amount_paid_ngn: newPaid,
-        payment_status: 'paid'
+        payment_status: 'paid',
+        caution_fee_status: finalCautionStatus
       }).eq('id', activeCheckOut.id);
+
+      try {
+        const guestPhone = activeCheckOut.profiles?.phone || activeCheckOut.guest_phone;
+        if (guestPhone) {
+          sendTermiiSms(guestPhone, `Thank you for staying at Sparkles Apartments! Your checkout from Room ${activeCheckOut.rooms?.room_number || ''} is complete. We hope to see you again soon.`);
+        }
+      } catch(e) {
+        console.warn("SMS error on checkout", e);
+      }
 
       // Mark all booking services under this booking as paid on checkout
       await supabase
@@ -2193,9 +2290,11 @@ const AdminFrontDesk = () => {
   const handleSettleFolioViaAR = async () => {
     if (!activeCheckOut) return;
     const unpaidServicesTotal = (unpaidServices || []).reduce((sum, s) => {
-      const isTaxable = s.services?.tax_inclusive !== false;
+      const isTaxable = typeof s.services?.is_taxable !== 'undefined' ? s.services.is_taxable : true;
       const basePrice = Number(s.total_price_ngn || 0);
-      const tax = isTaxable ? basePrice * 0.075 : 0;
+      const vat = isTaxable ? Math.round(basePrice * 0.075) : 0;
+      const consTax = isTaxable ? Math.round(basePrice * 0.05) : 0;
+      const tax = vat + consTax;
       return sum + basePrice + tax;
     }, 0);
     if (unpaidServicesTotal <= 0) return;
@@ -2317,6 +2416,181 @@ const AdminFrontDesk = () => {
     }
   };
 
+  const canWaiveBalance = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'manager' || hasAccess('Front Desk - Waive Balance');
+
+  const canExtendStay = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'manager' || hasAccess('Front Desk - Extend Stay');
+
+  const handleExtendStay = async () => {
+    if (!activeExtendStay || !newExtendCheckoutDate) return;
+    if (!canExtendStay) return toast.error("You do not have permission to extend stays.");
+    
+    const originalCheckIn = new Date(activeExtendStay.check_in_date);
+    const originalCheckOut = new Date(activeExtendStay.check_out_date);
+    const newCheckOut = new Date(newExtendCheckoutDate);
+    
+    if (newCheckOut <= originalCheckOut) {
+      return toast.error("New check-out date must be after the original check-out date.");
+    }
+    
+    const originalNights = Math.max(1, differenceInDays(originalCheckOut, originalCheckIn)) || 1;
+    const dailyRoomRate = Number(activeExtendStay.total_room_price_ngn || 0) / originalNights;
+    
+    const extraNights = differenceInDays(newCheckOut, originalCheckOut);
+    const extraCost = extraNights * dailyRoomRate;
+    
+    setIsExtendingStay(true);
+    const toastId = toast.loading(`Extending stay by ${extraNights} night(s)...`);
+    
+    try {
+      const { data: conflicts, error: conflictErr } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('room_id', activeExtendStay.room_id)
+        .in('status', ['confirmed', 'checked_in'])
+        .neq('id', activeExtendStay.id)
+        .lt('check_in_date', newExtendCheckoutDate)
+        .gt('check_out_date', activeExtendStay.check_out_date);
+        
+      if (conflictErr) throw conflictErr;
+      
+      if (conflicts && conflicts.length > 0) {
+        throw new Error("Room is already booked for the requested extension dates. Please transfer room first.");
+      }
+
+      const newTotalRoomPrice = Number(activeExtendStay.total_room_price_ngn || 0) + extraCost;
+      const newTotalAmount = Number(activeExtendStay.total_amount_ngn || 0) + extraCost;
+
+      const { error: updateErr } = await supabase
+        .from('bookings')
+        .update({
+          check_out_date: newExtendCheckoutDate,
+          total_room_price_ngn: newTotalRoomPrice,
+          total_amount_ngn: newTotalAmount,
+          payment_status: Number(activeExtendStay.amount_paid_ngn || 0) >= newTotalAmount ? 'paid' : (Number(activeExtendStay.amount_paid_ngn || 0) > 0 ? 'partial' : 'unpaid')
+        })
+        .eq('id', activeExtendStay.id);
+
+      if (updateErr) throw updateErr;
+
+      await supabase.from('payments').insert([{
+        booking_id: activeExtendStay.id,
+        amount: extraCost,
+        method: 'system',
+        status: 'completed',
+        notes: `Stay extended by ${extraNights} night(s) to ${newExtendCheckoutDate}. Added room charge: ₦${extraCost.toLocaleString()}`,
+        transaction_ref: `EXT-${activeExtendStay.id.substring(0,6)}-${Date.now().toString().slice(-4)}`
+      }]);
+
+      toast.success('Stay extended successfully!', { id: toastId });
+      setActiveExtendStay(null);
+      setNewExtendCheckoutDate('');
+      fetchCalendarData();
+    } catch (err) {
+      toast.error(err.message, { id: toastId });
+    } finally {
+      setIsExtendingStay(false);
+    }
+  };
+
+  const handleWaiveAndCheckout = async (amountToWaive, unusedNightsValue) => {
+    if (!activeCheckOut) return;
+    if (!canWaiveBalance) return toast.error("You do not have permission to waive checkout balances.");
+    
+    setCheckoutProcessing(true);
+    const toastId = toast.loading(`Waiving ₦${amountToWaive.toLocaleString()} outstanding folio and checking out...`);
+    try {
+      // 1. Log a completed payment in payments table as 'waiver'
+      const txnRef = `WAIV-BK-FD-CO-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      const { error: payErr } = await supabase
+        .from('payments')
+        .insert([{
+          booking_id: activeCheckOut.id,
+          amount: amountToWaive,
+          method: 'waiver',
+          status: 'completed',
+          notes: `Checkout outstanding balance waived by ${profile?.first_name || 'Staff'} | Ref: ${activeCheckOut.booking_reference}`,
+          transaction_ref: txnRef
+        }]);
+
+      if (payErr) throw payErr;
+
+      // 2. Update booking paid amount (treat waiver as paid amount to balance the folio)
+      const currentPaid = Number(activeCheckOut.amount_paid_ngn || 0);
+      const newPaid = currentPaid + amountToWaive;
+
+      const { error: bookingUpdateErr } = await supabase
+        .from('bookings')
+        .update({ amount_paid_ngn: newPaid })
+        .eq('id', activeCheckOut.id);
+
+      if (bookingUpdateErr) throw bookingUpdateErr;
+
+      // 3. Finalize the checkout!
+      const scheduledNights = Math.max(1, differenceInDays(new Date(activeCheckOut.check_out_date), new Date(activeCheckOut.check_in_date))) || 1;
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const finalCheckOutDate = activeCheckOut.check_out_date > todayStr ? todayStr : activeCheckOut.check_out_date;
+      const actualNights = Math.max(1, differenceInDays(new Date(finalCheckOutDate), new Date(activeCheckOut.check_in_date))) || 1;
+      const dailyRoomRate = Number(activeCheckOut.total_room_price_ngn || 0) / scheduledNights;
+      const actualRoomPrice = dailyRoomRate * actualNights;
+      const originalTotal = Number(activeCheckOut.total_amount_ngn || 0);
+      const newTotal = originalTotal - unusedNightsValue;
+      
+      // Award loyalty points
+      await awardLoyaltyPoints(activeCheckOut, actualNights, newTotal);
+
+      const { error: finalCheckoutErr } = await supabase.from('bookings').update({ 
+        status: 'checked_out',
+        check_out_date: finalCheckOutDate,
+        total_room_price_ngn: actualRoomPrice,
+        total_amount_ngn: newTotal,
+        amount_paid_ngn: newPaid,
+        payment_status: 'paid'
+      }).eq('id', activeCheckOut.id);
+
+      if (finalCheckoutErr) throw finalCheckoutErr;
+
+      // Trigger checkout automation SMS
+      try {
+        const guestPhone = activeCheckOut.profiles?.phone || activeCheckOut.guest_phone;
+        if (guestPhone) {
+          sendTermiiSms(guestPhone, `Thank you for staying at Sparkles Apartments! Your checkout from Room ${activeCheckOut.rooms?.room_number || ''} is complete. We hope to see you again soon.`);
+        }
+      } catch(e) {
+        console.warn("SMS error on checkout", e);
+      }
+
+      // Mark all booking services under this booking as paid on checkout
+      await supabase
+        .from('booking_services')
+        .update({ payment_status: 'paid' })
+        .eq('booking_id', activeCheckOut.id);
+
+      // Release Room
+      await supabase.from('rooms').update({ status: 'available' }).eq('id', activeCheckOut.room_id);
+      
+      // Auto-schedule housekeeping task
+      await supabase.from('housekeeping_tasks').insert([{
+        room_id: activeCheckOut.room_id,
+        task_type: 'checkout_cleaning',
+        status: 'pending',
+        assigned_date: format(new Date(), 'yyyy-MM-dd'),
+        notes: `Auto-generated upon checkout of booking ${activeCheckOut.booking_reference}`
+      }]);
+
+      triggerAutomationRules('checkout', activeCheckOut);
+
+      toast.success('Balance waived and Checkout complete!', { id: toastId });
+      setActiveCheckOut(null);
+      fetchCalendarData();
+      fetchPendingCheckoutPayments();
+    } catch (err) {
+      toast.error(`Checkout waiver failed: ${err.message}`, { id: toastId });
+      console.error(err);
+    } finally {
+      setCheckoutProcessing(false);
+    }
+  };
+
   const handleSettleARAndCheckout = async (amountToDeduct, unusedNightsValue) => {
     if (!activeCheckOut || !checkoutARProfile) return;
     setCheckoutProcessing(true);
@@ -2405,6 +2679,16 @@ const AdminFrontDesk = () => {
       }).eq('id', activeCheckOut.id);
 
       if (finalCheckoutErr) throw finalCheckoutErr;
+
+      // Trigger checkout automation SMS
+      try {
+        const guestPhone = activeCheckOut.profiles?.phone || activeCheckOut.guest_phone;
+        if (guestPhone) {
+          sendTermiiSms(guestPhone, `Thank you for staying at Sparkles Apartments! Your checkout from Room ${activeCheckOut.rooms?.room_number || ''} is complete. We hope to see you again soon.`);
+        }
+      } catch(e) {
+        console.warn("SMS error on checkout", e);
+      }
 
       // Mark all booking services under this booking as paid on checkout
       await supabase
@@ -2504,14 +2788,14 @@ const AdminFrontDesk = () => {
       )}
       {/* Header Panel */}
       <div className="bg-dark-800 border border-dark-700 p-6 shadow-sm flex flex-col md:flex-row justify-between items-center rounded-lg">
-        <div>
+        <div className="w-full md:w-auto">
           <h1 className="text-2xl font-bold text-white">Front Desk & Reception</h1>
           <p className="text-gray-400 flex items-center gap-2 mt-1">
             <CalendarIcon size={16} />
             {currentTime.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <div className="mt-4 md:mt-0 flex items-center gap-4">
+        <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3 w-full md:w-auto py-2">
           {hasAccess('Store Keeping - Log Requisitions') && (
             <button onClick={() => setIsRequisitionOpen(true)} className="bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-400 hover:text-white py-2 px-4 flex items-center gap-2 mr-2 rounded text-sm font-bold transition-all shadow">
               <Archive size={16}/> Store Requisition
@@ -2600,7 +2884,7 @@ const AdminFrontDesk = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-dark-700 overflow-x-auto">
+      <div className="flex gap-4 border-b border-dark-700 overflow-x-auto w-full max-w-full hide-scrollbar custom-scrollbar">
         <button onClick={() => setActiveTab('overview')} className={`pb-3 px-4 font-bold flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-brand-500 text-brand-500' : 'border-transparent text-gray-400 hover:text-white'}`}>
           <Search size={18} /> Front Desk Overview
         </button>
@@ -3082,9 +3366,23 @@ const AdminFrontDesk = () => {
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-gray-500 font-mono flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping"></span>
-              Live Grid System
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+                  <Search size={14} />
+                </span>
+                <input 
+                  type="text" 
+                  value={matrixSearchTerm}
+                  onChange={(e) => setMatrixSearchTerm(e.target.value)}
+                  placeholder="Search rooms..." 
+                  className="bg-dark-900 text-white border border-dark-700 rounded-lg pl-9 pr-4 py-2 text-sm focus:border-brand-500 outline-none w-48 transition-all focus:w-64"
+                />
+              </div>
+              <div className="text-[11px] text-gray-500 font-mono flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping"></span>
+                Live Grid
+              </div>
             </div>
           </div>
 
@@ -3092,6 +3390,15 @@ const AdminFrontDesk = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {allRooms.filter(room => {
               const activeBooking = inHouse.find(b => b.room_id === room.id);
+              
+              // Apply search filter first
+              if (matrixSearchTerm) {
+                const term = matrixSearchTerm.toLowerCase();
+                const roomMatch = room.name.toLowerCase().includes(term) || room.type.toLowerCase().includes(term);
+                const guestMatch = activeBooking && activeBooking.guest_name && activeBooking.guest_name.toLowerCase().includes(term);
+                if (!roomMatch && !guestMatch) return false;
+              }
+
               const latestTask = housekeepingTasks.find(t => t.room_id === room.id);
               const maintTicket = maintenanceTickets.find(t => t.room_id === room.id);
               const isOccupied = room.status === 'occupied' || activeBooking;
@@ -3558,17 +3865,17 @@ const AdminFrontDesk = () => {
                   }, {});
 
                 return (
-                  <div className="flex overflow-x-auto custom-scrollbar select-none relative w-full flex-1">
+                  <div className="flex overflow-auto max-h-[70vh] custom-scrollbar select-none relative w-full flex-1">
                     
                     {/* Fixed Left Sidebar: Accommodation List */}
-                    <div className="w-[280px] min-w-[280px] bg-dark-900 border-r border-dark-700 flex-shrink-0 z-20 sticky left-0 shadow-[4px_0_10px_rgba(0,0,0,0.3)]">
+                    <div className="w-[280px] min-w-[280px] bg-dark-900 border-r border-dark-700 flex-shrink-0 z-[40] sticky left-0 shadow-[4px_0_10px_rgba(0,0,0,0.3)] flex flex-col min-h-full h-max">
                       {/* Left Header */}
-                      <div className="h-[76px] bg-dark-950 border-b border-dark-700 p-4 flex items-center justify-start">
+                      <div className="h-[76px] bg-dark-900 !opacity-100 border-b border-dark-700 p-4 flex items-center justify-start sticky top-0 z-[50] flex-shrink-0">
                         <span className="text-xs uppercase font-bold tracking-wider text-gray-400">Accommodation</span>
                       </div>
                       
                       {/* Left Groups & Rooms */}
-                      <div className="divide-y divide-dark-800">
+                      <div className="divide-y divide-dark-800 flex-grow bg-dark-900">
                         {Object.entries(roomsGroupedByType).map(([type, roomsList]) => (
                           <div key={type} className="flex flex-col">
                             {/* Group Label */}
@@ -3597,7 +3904,7 @@ const AdminFrontDesk = () => {
                     <div className="flex-grow flex flex-col min-w-0 z-10" style={{ width: `${totalTimelineWidth}px`, minWidth: `${totalTimelineWidth}px`, flexShrink: 0 }}>
                       
                       {/* Timeline Header Row (Dates) */}
-                      <div className="h-[76px] bg-dark-950 border-b border-dark-700 flex-shrink-0 flex sticky top-0 z-20">
+                      <div className="h-[76px] bg-dark-900 !opacity-100 border-b border-dark-700 flex-shrink-0 flex sticky top-0 z-[30]">
                         {days.map((dayStr) => {
                           const dateObj = new Date(dayStr + 'T00:00:00');
                           const isTodayStr = format(new Date(), 'yyyy-MM-dd') === dayStr;
@@ -4084,6 +4391,18 @@ const AdminFrontDesk = () => {
                     >
                       <Users size={13} /> Register Guest Visitor
                     </button>
+                    <button 
+                      disabled={isFrontOfficeClosed}
+                      onClick={() => {
+                        if (isFrontOfficeClosed) return toast.error("Front Office operations are locked due to daily ledger closure.");
+                        setActiveExtendStay(selectedCalendarBooking);
+                        setNewExtendCheckoutDate(addDays(new Date(selectedCalendarBooking.check_out_date), 1).toISOString().split('T')[0]);
+                        setSelectedCalendarBooking(null);
+                      }}
+                      className="w-full bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-white font-medium py-2.5 rounded border border-emerald-500/20 transition-all text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <CalendarDays size={13} /> Request Stay Extension
+                    </button>
                   </>
                 )}
                 {(selectedCalendarBooking.status === 'confirmed' || selectedCalendarBooking.status === 'pending') && (
@@ -4210,13 +4529,36 @@ const AdminFrontDesk = () => {
                       </div>
                     </label>
 
-                    <label className="flex items-center gap-4 p-4 border border-dark-700 rounded cursor-pointer hover:bg-dark-800 transition-colors">
-                      <input type="checkbox" checked={keyIssued} onChange={e => setKeyIssued(e.target.checked)} className="w-6 h-6 accent-brand-500" />
-                      <div>
-                        <p className="font-bold text-white flex items-center gap-2"><Key size={18} className="text-brand-500"/> Room Keys Issued</p>
-                        <p className="text-xs text-gray-400">Physical or digital keys have been successfully provisioned for Room {activeCheckIn.rooms?.room_number}.</p>
+                    <div className="p-4 border border-dark-700 rounded bg-dark-800/50">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-bold text-white flex items-center gap-2"><Key size={18} className="text-brand-500"/> Room Access Assignment</p>
+                            <p className="text-xs text-gray-400 mt-1">Encode a new RFID card via USB, or manually confirm physical keys were handed over.</p>
+                          </div>
+                          <button
+                            onClick={handleEncodeCheckInKey}
+                            disabled={encodingCheckInKey || keyIssued}
+                            className={`flex items-center gap-2 px-4 py-2 rounded font-bold text-sm transition-colors ${keyIssued ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-50'}`}
+                          >
+                            {encodingCheckInKey ? (
+                              <>Encoding...</>
+                            ) : keyIssued ? (
+                              <><CheckCircle size={16} /> Encoded</>
+                            ) : (
+                              <><Sparkles size={16} /> Encode RFID Card</>
+                            )}
+                          </button>
+                        </div>
+                        
+                        <div className="w-full h-px bg-dark-700 my-2"></div>
+                        
+                        <label className="flex items-center gap-4 cursor-pointer">
+                          <input type="checkbox" checked={keyIssued} onChange={e => setKeyIssued(e.target.checked)} className="w-5 h-5 accent-brand-500" />
+                          <span className="text-sm font-medium text-gray-300">Manual Override: Physical Keys Issued</span>
+                        </label>
                       </div>
-                    </label>
+                    </div>
                   </div>
                   <div className="flex gap-4 mt-4">
                     <button onClick={() => setCheckInStep(1)} className="bg-dark-700 text-white px-6 py-3 rounded">Back</button>
@@ -4278,6 +4620,73 @@ const AdminFrontDesk = () => {
         </div>
       )}
 
+      {/* --- Extend Stay Modal --- */}
+      {activeExtendStay && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-800 border border-dark-700 w-full max-w-md rounded-xl shadow-2xl animate-in zoom-in-95 overflow-hidden flex flex-col">
+            <div className="bg-dark-900 p-5 border-b border-dark-700 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <CalendarDays className="text-brand-500"/> Extend Stay
+              </h2>
+              <button onClick={() => setActiveExtendStay(null)} className="text-gray-400 hover:text-white"><X size={24}/></button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="bg-dark-900 border border-dark-700 rounded p-4 text-sm">
+                <p className="text-gray-400 mb-1">Guest: <strong className="text-white">{activeExtendStay.profiles ? `${activeExtendStay.profiles.first_name} ${activeExtendStay.profiles.last_name}` : activeExtendStay.guest_name}</strong></p>
+                <p className="text-gray-400">Room: <strong className="text-brand-500">{activeExtendStay.rooms?.room_number}</strong></p>
+                <p className="text-gray-400 mt-2">Original Check-Out: <strong className="text-white">{activeExtendStay.check_out_date}</strong></p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">New Check-Out Date</label>
+                <input 
+                  type="date"
+                  min={addDays(new Date(activeExtendStay.check_out_date), 1).toISOString().split('T')[0]}
+                  value={newExtendCheckoutDate}
+                  onChange={(e) => setNewExtendCheckoutDate(e.target.value)}
+                  className="w-full bg-dark-950 border border-dark-700 rounded p-3 text-white focus:outline-none focus:border-brand-500"
+                />
+              </div>
+
+              {(() => {
+                const origOut = new Date(activeExtendStay.check_out_date);
+                const newOut = new Date(newExtendCheckoutDate);
+                const extraNights = newOut > origOut ? differenceInDays(newOut, origOut) : 0;
+                const origNights = Math.max(1, differenceInDays(origOut, new Date(activeExtendStay.check_in_date))) || 1;
+                const dailyRate = Number(activeExtendStay.total_room_price_ngn || 0) / origNights;
+                const extraCost = extraNights * dailyRate;
+
+                return extraNights > 0 ? (
+                  <div className="bg-brand-500/10 border border-brand-500/20 p-4 rounded text-sm space-y-2">
+                    <div className="flex justify-between items-center text-gray-300">
+                      <span>Additional Nights:</span>
+                      <span className="font-bold text-white">{extraNights}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-gray-300">
+                      <span>Additional Room Charge:</span>
+                      <span className="font-bold text-white font-mono">₦{extraCost.toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-brand-400 mt-2">This amount will be added to the guest's folio.</p>
+                  </div>
+                ) : null;
+              })()}
+
+              <div className="flex gap-4 mt-6">
+                <button onClick={() => setActiveExtendStay(null)} className="flex-1 bg-dark-700 hover:bg-dark-600 text-white font-medium py-3 rounded transition-colors text-sm">Cancel</button>
+                <button 
+                  onClick={handleExtendStay}
+                  disabled={isExtendingStay || new Date(newExtendCheckoutDate) <= new Date(activeExtendStay.check_out_date)}
+                  className="flex-1 bg-brand-500 hover:bg-brand-400 text-dark-900 font-bold py-3 rounded transition-colors text-sm flex justify-center items-center gap-2 disabled:opacity-50"
+                >
+                  {isExtendingStay ? 'Processing...' : 'Confirm Extension'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- Check-Out Modal --- */}
       {activeCheckOut && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -4307,9 +4716,11 @@ const AdminFrontDesk = () => {
                 const accommodationCharges = Math.max(0, newTotal - totalExtras);
                 
                 const unpaidServicesTotal = (unpaidServices || []).reduce((sum, s) => {
-                  const isTaxable = s.services?.tax_inclusive !== false;
+                  const isTaxable = typeof s.services?.is_taxable !== 'undefined' ? s.services.is_taxable : true;
                   const basePrice = Number(s.total_price_ngn || 0);
-                  const tax = isTaxable ? basePrice * 0.075 : 0;
+                  const sVat = isTaxable ? Math.round(basePrice * 0.075) : 0;
+                  const sConsTax = isTaxable ? Math.round(basePrice * 0.05) : 0;
+                  const tax = sVat + sConsTax;
                   return sum + basePrice + tax;
                 }, 0);
                 
@@ -4348,9 +4759,11 @@ const AdminFrontDesk = () => {
                         </p>
                         <div className="divide-y divide-dark-750 bg-dark-900/50 p-2 rounded-lg border border-dark-700/50 max-h-[160px] overflow-y-auto space-y-1">
                           {unpaidServices.map(srv => {
-                            const isTaxable = srv.services?.tax_inclusive !== false;
+                            const isTaxable = typeof srv.services?.is_taxable !== 'undefined' ? srv.services.is_taxable : true;
                             const basePrice = Number(srv.total_price_ngn || 0);
-                            const tax = isTaxable ? basePrice * 0.075 : 0;
+                            const sVat = isTaxable ? Math.round(basePrice * 0.075) : 0;
+                            const sConsTax = isTaxable ? Math.round(basePrice * 0.05) : 0;
+                            const tax = sVat + sConsTax;
                             const total = basePrice + tax;
                             const qty = srv.quantity || 1;
                             const unitPrice = srv.unit_price_ngn || (qty > 0 ? basePrice / qty : basePrice);
@@ -4358,11 +4771,11 @@ const AdminFrontDesk = () => {
                               <div key={srv.id} className="flex flex-col py-1.5 border-b border-dark-700/30 last:border-b-0">
                                 <div className="flex justify-between items-center">
                                   <span className="text-gray-300 font-medium truncate max-w-[220px]">{srv.services?.name || 'Guest Charge'}</span>
-                                  <span className="font-bold text-white font-mono">₦{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  <span className="font-bold text-white font-mono">₦{total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-[9px] text-gray-500 mt-0.5">
-                                  <span>Qty: {qty} | Unit: ₦{unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                  <span>Base: ₦{basePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {isTaxable ? `| VAT (7.5%): ₦${tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '(VAT Exempt)'}</span>
+                                  <span>Qty: {qty} | Unit: ₦{unitPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                  <span>Base: ₦{basePrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} {isTaxable ? `| Taxes (12.5%): ₦${tax.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '(VAT Exempt)'}</span>
                                 </div>
                               </div>
                             );
@@ -4370,7 +4783,7 @@ const AdminFrontDesk = () => {
                         </div>
                         <div className="flex justify-between items-center text-[11px] pt-1.5 font-bold text-red-400 border-t border-red-500/10">
                           <span>Total Unpaid Services:</span>
-                          <span className="font-mono">₦{unpaidServicesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span className="font-mono">₦{unpaidServicesTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                         </div>
                       </div>
                     )}
@@ -4512,6 +4925,21 @@ const AdminFrontDesk = () => {
                                 <ArrowUpRight size={18} className="mb-1" />
                                 <span className="text-[10px]">Transfer</span>
                               </label>
+
+                              {canWaiveBalance && (
+                                <label className={`flex flex-col items-center justify-center p-3 rounded-lg border text-center cursor-pointer transition-all ${checkoutPaymentMethod === 'waiver' ? 'border-red-500 bg-red-500/10 text-white font-semibold shadow-sm' : 'border-dark-700 bg-dark-800/50 text-gray-400 hover:border-dark-600'}`}>
+                                  <input 
+                                    type="radio" 
+                                    name="checkout_payment" 
+                                    value="waiver"
+                                    checked={checkoutPaymentMethod === 'waiver'}
+                                    onChange={() => setCheckoutPaymentMethod('waiver')}
+                                    className="sr-only"
+                                  />
+                                  <ShieldCheck size={18} className="mb-1" />
+                                  <span className="text-[10px]">Waive</span>
+                                </label>
+                              )}
                             </div>
 
                             {checkoutPaymentMethod === 'ar' && (
@@ -4548,7 +4976,21 @@ const AdminFrontDesk = () => {
                               </div>
                             )}
 
-                            {checkoutPaymentMethod !== 'ar' && (
+                            {checkoutPaymentMethod === 'waiver' && (
+                              <div className="pt-2 border-t border-dark-750">
+                                <button
+                                  type="button"
+                                  disabled={checkoutProcessing}
+                                  onClick={() => handleWaiveAndCheckout(totalOwed, unusedNightsValue)}
+                                  className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-md mt-1 flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <ShieldCheck size={13} />
+                                  <span>Waive Balance & Check Out</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {checkoutPaymentMethod !== 'ar' && checkoutPaymentMethod !== 'waiver' && (
                               <div className="pt-2 border-t border-dark-750">
                                 <button
                                   type="button"

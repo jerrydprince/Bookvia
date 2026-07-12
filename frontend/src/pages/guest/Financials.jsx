@@ -495,7 +495,7 @@ const GuestFinancials = () => {
           reference: depRef,
           email: guestRecord?.email || user?.email || '',
           amount: Math.round(amount * 100), // in kobo
-          publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || paystackPublicKey || '',
+          publicKey: paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
           currency: 'NGN'
         },
         onSuccess,

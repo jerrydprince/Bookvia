@@ -1,12 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 const WhatsAppWidget = () => {
   const [isHovered, setIsHovered] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('2348000000000'); // Fallback number
   
-  // Replace with the actual business WhatsApp number (with country code, no + or spaces)
-  const phoneNumber = '2348000000000';
   const defaultMessage = "Hello Sparkles Apartments! I'm interested in booking a stay.";
   
+  useEffect(() => {
+    const fetchContactPhone = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', 'contact_phone')
+          .single();
+          
+        if (data && data.setting_value) {
+          // Extract the first number if comma-separated
+          const rawNumber = data.setting_value.split(',')[0].trim();
+          // Clean up to keep only numbers
+          let cleanNumber = rawNumber.replace(/[^0-9]/g, '');
+          // Standardize Nigerian local format to international if it starts with 0
+          if (cleanNumber.startsWith('0')) {
+            cleanNumber = '234' + cleanNumber.substring(1);
+          }
+          if (cleanNumber) {
+            setPhoneNumber(cleanNumber);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load WhatsApp number:", err);
+      }
+    };
+    fetchContactPhone();
+  }, []);
+
   const handleWhatsAppClick = () => {
     const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(defaultMessage)}`;
     window.open(url, '_blank', 'noopener,noreferrer');

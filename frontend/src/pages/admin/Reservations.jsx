@@ -395,7 +395,13 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
       return;
     }
     setCurrentBooking(booking);
-    setEditBookingForm({ status: booking.status });
+    setEditBookingForm({ 
+      status: booking.status,
+      guest_name: booking.crm_guests ? `${booking.crm_guests.first_name || ''} ${booking.crm_guests.last_name || ''}`.trim() || booking.crm_guests.guest_name : booking.guest_name || '',
+      check_in_date: booking.check_in_date,
+      check_out_date: booking.check_out_date,
+      room_id: booking.room_id
+    });
     setIsEditModalOpen(true);
   };
 
@@ -492,10 +498,11 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
             {(() => {
               const booking = viewBooking;
               const roomPrice = Number(booking.total_room_price_ngn || 0);
-              const discount = Number(booking.discount_amount_ngn || 0);
-              const roomBase = Math.max(0, roomPrice - discount);
-              const roomTax = roomBase * 0.075;
-              const roomTotalWithTax = roomBase + roomTax;
+              const discountVal = Math.max(0, Math.min(roomPrice, Number(booking.discount_amount_ngn || 0)));
+              const roomBase = Math.max(0, roomPrice - discountVal);
+              const roomVat = Math.round(roomBase * 0.075);
+              const roomConsTax = Math.round(roomBase * 0.05);
+              const roomTotalWithTax = roomBase + roomVat + roomConsTax;
 
               const amountPaidTotal = Number(booking.amount_paid_ngn || 0);
               let remainingPaid = amountPaidTotal;
@@ -539,9 +546,11 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
 
               // Calculate status for each service sequentially
               const servicesWithStatus = activeServices.map(extra => {
-                const isTaxable = extra.services?.tax_inclusive !== false;
+                const isTaxable = typeof extra.services?.is_taxable !== 'undefined' ? extra.services?.is_taxable : true;
                 const sBasePrice = Number(extra.total_price_ngn || 0);
-                const sTax = isTaxable ? sBasePrice * 0.075 : 0;
+                const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+                const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+                const sTax = sVat + sConsTax;
                 const sTotal = sBasePrice + sTax;
                 const uPrice = Number(extra.unit_price_ngn || (extra.quantity > 0 ? sBasePrice / extra.quantity : sBasePrice));
 
@@ -572,14 +581,14 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
                       <p className="font-bold text-black">{booking.rooms?.name || 'Luxury Room Stay'} (Room {booking.rooms?.room_number})</p>
                       <p className="text-gray-500 text-[10px] mt-0.5">Accommodation Charges (Rent + Tax)</p>
                           <p className="text-[9px] text-gray-400">
-                            Rate: ₦{roomPrice.toLocaleString()} {discount > 0 && `| Discount: -₦${discount.toLocaleString()}`} | Taxable Base: ₦{roomBase.toLocaleString()} | VAT (7.5%): ₦{roomTax.toLocaleString()}
+                            Rate: ₦{roomPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} {discount > 0 && `| Discount: -₦${discount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} | Taxable Base: ₦{roomBase.toLocaleString(undefined, { maximumFractionDigits: 0 })} | VAT (7.5%): ₦{roomVat.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Ent. Tax (5%): ₦{roomConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </p>
                     </td>
                     <td className="py-3 px-4 text-center">
                       {renderStatusBadge(roomPaymentStatus)}
                     </td>
                     <td className="py-3 px-4 text-right font-medium text-black">
-                      ₦{roomTotalWithTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ₦{roomTotalWithTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </td>
                   </tr>
                   {servicesWithStatus.map((extra) => {
@@ -588,17 +597,17 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
                         <td className="py-3 px-4">
                           <p className="font-bold text-black">{extra.services?.name || 'Guest Service'}</p>
                           <p className="text-gray-500 text-[10px] mt-0.5">
-                            Unit Price: ₦{extra.uPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Quantity: {extra.quantity}
+                            Unit Price: ₦{extra.uPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Quantity: {extra.quantity}
                           </p>
                           <p className="text-[9px] text-gray-400">
-                            Base: ₦{extra.sBasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {extra.isTaxable ? `| VAT (7.5%): ₦${extra.sTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '(VAT Exempt)'}
+                            Base: ₦{extra.sBasePrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} {extra.isTaxable ? `| VAT (7.5%): ₦${extra.sVat.toLocaleString(undefined, { maximumFractionDigits: 0 })} | Ent. Tax (5%): ₦${extra.sConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '(VAT Exempt)'}
                           </p>
                         </td>
                         <td className="py-3 px-4 text-center">
                           {renderStatusBadge(extra.calculatedStatus)}
                         </td>
                         <td className="py-3 px-4 text-right font-medium text-black">
-                          ₦{extra.sTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ₦{extra.sTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </td>
                       </tr>
                     );
@@ -610,32 +619,70 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
         </table>
 
         {/* Totals Summary */}
-        <div className="flex justify-end text-xs">
-          <div className="w-64 space-y-2 border-t pt-4">
-            <div className="flex justify-between text-gray-600">
-              <span>Subtotal</span>
-              <span>₦{(Number(viewBooking.total_amount_ngn) + discount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-yellow-600 font-bold">
-                <span>Room Discount</span>
-                <span>-₦{discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-            )}
-            <div className="flex justify-between font-black text-sm border-t pt-2 text-black">
-              <span>Total Due</span>
-              <span>₦{Number(viewBooking.total_amount_ngn).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
+        {(() => {
+          const booking = viewBooking;
+          const roomPrice = Number(booking.total_room_price_ngn || 0);
+          const discountVal = Math.max(0, Math.min(roomPrice, Number(booking.discount_amount_ngn || 0)));
+          const roomBase = Math.max(0, roomPrice - discountVal);
+          const roomVat = Math.round(roomBase * 0.075);
+          const roomConsTax = Math.round(roomBase * 0.05);
+          
+          const activeServices = booking.booking_services?.filter(s => s.status !== 'cancelled') || [];
+          const servicesSummary = activeServices.reduce((acc, extra) => {
+            const isTaxable = typeof extra.services?.is_taxable !== 'undefined' ? extra.services.is_taxable : true;
+            const sBasePrice = Number(extra.total_price_ngn || 0);
+            const sVat = isTaxable ? Math.round(sBasePrice * 0.075) : 0;
+            const sConsTax = isTaxable ? Math.round(sBasePrice * 0.05) : 0;
+            return { base: acc.base + sBasePrice, vat: acc.vat + sVat, consTax: acc.consTax + sConsTax };
+          }, { base: 0, vat: 0, consTax: 0 });
+
+          const totalRate = roomPrice + servicesSummary.base;
+          const totalVat = roomVat + servicesSummary.vat;
+          const totalConsTax = roomConsTax + servicesSummary.consTax;
+
+          return (
+            <div className="flex justify-end text-xs">
+              <div className="w-64 space-y-2 border-t pt-4">
+                <div className="flex justify-between text-gray-600">
+                  <span>Subtotal (Base)</span>
+                  <span>₦{totalRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                </div>
+                {discountVal > 0 && (
+                  <div className="flex justify-between text-yellow-600 font-bold">
+                    <span>Room Discount</span>
+                    <span>-₦{discountVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-gray-600 font-medium">
+                  <span>VAT (7.5%)</span>
+                  <span>₦{totalVat.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                </div>
+                <div className="flex justify-between text-gray-600 font-medium">
+                  <span>Entertainment Tax (5%)</span>
+                  <span>₦{totalConsTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                </div>
+                <div className="flex justify-between font-black text-sm border-t pt-2 text-black">
+                  <span>Total Due</span>
+                  <span>₦{Number(viewBooking.total_amount_ngn).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                </div>
             <div className="flex justify-between font-bold text-green-600 pt-1">
               <span>Amount Paid</span>
-              <span>₦{Number(viewBooking.amount_paid_ngn || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span>₦{Number(viewBooking.amount_paid_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
             <div className="flex justify-between font-bold text-red-650 pt-1 border-t border-gray-100">
               <span>Balance</span>
-              <span>₦{Math.max(0, Number(viewBooking.total_amount_ngn) - Number(viewBooking.amount_paid_ngn || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span>₦{Math.max(0, Number(viewBooking.total_amount_ngn) - Number(viewBooking.amount_paid_ngn || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
+            {Number(viewBooking.caution_fee_ngn) > 0 && (
+              <div className="flex justify-between font-bold text-amber-600 pt-3 border-t border-gray-100 mt-2">
+                <span className="flex items-center gap-1">Caution Fee Deposit <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full uppercase">{viewBooking.caution_fee_status}</span></span>
+                <span>₦{Number(viewBooking.caution_fee_ngn).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              </div>
+            )}
           </div>
         </div>
+        );
+        })()}
 
         {cleanNotes && (
           <div className="mt-8 border-t pt-4 text-left">
@@ -943,11 +990,38 @@ const AdminReservations = ({ onUpdate, isFrontOfficeClosed }) => {
             return (
               <div className="bg-dark-800 border border-dark-700 p-6 w-full max-w-lg relative animate-in fade-in zoom-in-95">
                 <button onClick={() => setIsEditModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24}/></button>
-                <h2 className="text-xl font-semibold mb-6">Edit Reservation Status</h2>
-                
-                <form onSubmit={handleUpdate} className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">Status</label>
+                  <h2 className="text-xl font-semibold mb-6">Edit Reservation</h2>
+                  
+                  <form onSubmit={handleUpdate} className="space-y-4">
+                    {['pending', 'confirmed'].includes(currentBooking?.status) && (
+                      <>
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Guest Name</label>
+                          <input type="text" value={editBookingForm.guest_name} onChange={e => setEditBookingForm({ ...editBookingForm, guest_name: e.target.value })} className="w-full bg-dark-900 border border-dark-700 p-2 rounded text-white outline-none focus:border-gold-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm text-gray-400 mb-1">Check-In</label>
+                            <input type="date" value={editBookingForm.check_in_date} onChange={e => setEditBookingForm({ ...editBookingForm, check_in_date: e.target.value })} className="w-full bg-dark-900 border border-dark-700 p-2 rounded text-white outline-none focus:border-gold-500" />
+                          </div>
+                          <div>
+                            <label className="block text-sm text-gray-400 mb-1">Check-Out</label>
+                            <input type="date" value={editBookingForm.check_out_date} onChange={e => setEditBookingForm({ ...editBookingForm, check_out_date: e.target.value })} className="w-full bg-dark-900 border border-dark-700 p-2 rounded text-white outline-none focus:border-gold-500" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Room Assignment</label>
+                          <select value={editBookingForm.room_id} onChange={e => setEditBookingForm({ ...editBookingForm, room_id: e.target.value })} className="w-full bg-dark-900 border border-dark-700 p-2 rounded text-white outline-none focus:border-gold-500">
+                            {rooms.map(room => (
+                              <option key={room.id} value={room.id}>Room {room.room_number} - {room.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Status</label>
                     <select value={editBookingForm.status} onChange={e => setEditBookingForm({ status: e.target.value })} className="w-full bg-dark-900 border border-dark-700 p-2 text-white outline-none focus:border-gold-500">
                       <option value="pending">Pending</option>
                       <option value="confirmed" disabled={isConfirmedDisabled}>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
-import { MapPin, Globe, Shield, CreditCard, Activity, Lock, Mail, FileText, Save, GitBranch, Puzzle, Zap, ShieldAlert, Phone, User, Home, Check, AlertCircle, RefreshCw, Database, Key, Cpu, Send, Plus, X, MessageSquare } from 'lucide-react';
+import { MapPin, Globe, Shield, CreditCard, Activity, Lock, Mail, FileText, Save, GitBranch, Puzzle, Zap, ShieldAlert, Phone, User, Home, Check, AlertCircle, RefreshCw, Database, Key, Cpu, Send, Plus, X, MessageSquare, MessageCircle } from 'lucide-react';
 import { clearCache } from '../../utils/cache';
 import { useAuth } from '../../context/AuthContext';
 import Automations from './Automations';
@@ -57,6 +57,7 @@ const AdminSettings = () => {
     cancellation_policy: 'Flexible',
     payment_rule: 'partial_deposit',
     deposit_percentage: 30,
+    caution_fee: 0,
     auto_confirmation: true,
     booking_approval_workflow: 'instant',
     min_advance_notice_hours: 24,
@@ -88,6 +89,7 @@ const AdminSettings = () => {
     mailchimp_list_id: '',
     quickbooks_client_id: '',
     quickbooks_client_secret: '',
+    whatsapp_number: '',
     resend_enabled: false,
     smtp_host: 'mail.sparklesapartments.ng',
     smtp_port: '465',
@@ -712,12 +714,12 @@ const AdminSettings = () => {
                   <form onSubmit={handleSaveSettings} className="space-y-6 max-w-2xl">
                     {/* Row 1: Logo & Theme Selector */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-dark-900/40 p-6 rounded-2xl border border-dark-750">
-                      {/* Base64 Logo Uploader */}
+                      {/* Brand Logo URL Input */}
                       <div>
-                        <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Brand Logo (Base64)</label>
+                        <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Brand Logo URL (Required for Emails)</label>
                         <div className="flex flex-col items-center justify-center border-2 border-dashed border-dark-700 hover:border-brand-500/50 rounded-xl p-4 transition-colors bg-dark-950/40 relative min-h-[110px] group">
-                          {settings.contact_logo ? (
-                            <div className="flex flex-col items-center space-y-2">
+                          {settings.contact_logo && !settings.contact_logo.startsWith('data:image') ? (
+                            <div className="flex flex-col items-center space-y-2 w-full">
                               <img src={settings.contact_logo} alt="Brand Logo Preview" className="max-h-12 object-contain rounded" />
                               <button
                                 type="button"
@@ -728,35 +730,22 @@ const AdminSettings = () => {
                               </button>
                             </div>
                           ) : (
-                            <div className="text-center py-1">
-                              <Globe className="mx-auto text-gray-500 mb-1.5 animate-pulse" size={20} />
-                              <span className="text-xs text-gray-450 block font-bold">Upload Brand Logo</span>
-                              <span className="text-[9px] text-gray-550 block mt-0.5">PNG, JPG up to 150KB</span>
+                            <div className="text-center py-1 w-full px-2">
+                              <Globe className="mx-auto text-gray-500 mb-1.5" size={20} />
+                              <span className="text-xs text-gray-450 block font-bold mb-2">Paste Public Image URL</span>
                               <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    const loaderId = toast.loading("Processing and optimizing brand logo...");
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      optimizeImage(reader.result, 400, 400, 0.7).then(optimized => {
-                                        setSettings({ ...settings, contact_logo: optimized });
-                                        toast.success("Logo uploaded and optimized successfully!", { id: loaderId });
-                                      }).catch(err => {
-                                        console.error(err);
-                                        toast.error("Failed to process logo.", { id: loaderId });
-                                      });
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                type="text"
+                                placeholder="e.g. https://imgur.com/my-logo.png"
+                                className="w-full bg-dark-900 border border-dark-700 p-2 text-xs rounded text-white outline-none focus:border-brand-500 text-center"
+                                value={settings.contact_logo && settings.contact_logo.startsWith('data:') ? '' : settings.contact_logo}
+                                onChange={(e) => setSettings({ ...settings, contact_logo: e.target.value })}
                               />
                             </div>
                           )}
                         </div>
+                        <p className="text-[10px] text-amber-500 mt-2 font-semibold">
+                          ⚠️ For the logo to be visible in emails (like Gmail), you MUST paste a public image URL (e.g. Imgur, AWS) rather than uploading a local file.
+                        </p>
                       </div>
 
                       {/* Theme Selector */}
@@ -835,15 +824,20 @@ const AdminSettings = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">Public Support Email</label>
                         <input type="email" value={settings.contact_email || ''} onChange={e => setSettings({...settings, contact_email: e.target.value})} className="w-full bg-dark-900 text-white border border-dark-700 rounded p-3 focus:border-gold-500 outline-none" required />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">Public Phone Number(s)</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">Public Phone Number</label>
                         <input type="text" value={settings.contact_phone || ''} onChange={e => setSettings({...settings, contact_phone: e.target.value})} className="w-full bg-dark-900 text-white border border-dark-700 rounded p-3 focus:border-gold-500 outline-none" placeholder="+234 800..., +234 900..." required />
                         <p className="text-xs text-gray-500 mt-1">Separate multiple numbers with commas.</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">WhatsApp Number</label>
+                        <input type="text" value={settings.whatsapp_number || ''} onChange={e => setSettings({...settings, whatsapp_number: e.target.value})} className="w-full bg-dark-900 text-white border border-dark-700 rounded p-3 focus:border-gold-500 outline-none" placeholder="+234 800..." />
+                        <p className="text-xs text-gray-500 mt-1">Official WhatsApp contact.</p>
                       </div>
                     </div>
                     <div>
@@ -1284,6 +1278,11 @@ const AdminSettings = () => {
                             <input type="number" min="1" max="99" value={settings.deposit_percentage} onChange={e => setSettings({...settings, deposit_percentage: parseInt(e.target.value)})} className="w-full bg-dark-800 text-white border border-dark-700 rounded p-3 focus:border-gold-500 outline-none" />
                           </div>
                         )}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">Standard Caution Fee (NGN)</label>
+                          <input type="number" min="0" value={settings.caution_fee} onChange={e => setSettings({...settings, caution_fee: parseInt(e.target.value) || 0})} className="w-full bg-dark-800 text-white border border-dark-700 rounded p-3 focus:border-gold-500 outline-none" />
+                          <p className="text-xs text-gray-500 mt-1">Fee charged per booking for damages. Refunded on checkout if room is clear.</p>
+                        </div>
                       </div>
                     </div>
 
@@ -1855,6 +1854,49 @@ const AdminSettings = () => {
                               </div>
                             </>
                           )}
+                        </div>
+                      </div>
+
+                      {/* WhatsApp Configuration */}
+                      <div className="bg-dark-900/60 backdrop-blur-md p-6 border border-dark-700/60 rounded-2xl relative overflow-hidden shadow-lg mt-8">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 rounded-bl-full pointer-events-none" />
+                        <h4 className="font-bold text-white text-base mb-4 flex items-center gap-2">
+                          <MessageCircle size={18} className="text-green-500"/> WhatsApp Business API
+                        </h4>
+                        <p className="text-xs text-gray-400 mb-6">Configure WhatsApp Business integration to send booking notifications and automated guest alerts.</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">WhatsApp Phone Number</label>
+                            <div className="relative">
+                              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-500">
+                                <Phone size={14} />
+                              </span>
+                              <input 
+                                type="text" 
+                                value={settings.whatsapp_business_number || ''} 
+                                onChange={e => setSettings({...settings, whatsapp_business_number: e.target.value})} 
+                                className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 pl-10 pr-4 focus:border-green-500 outline-none text-sm font-mono" 
+                                placeholder="e.g. +234..." 
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">WhatsApp API Token / Key</label>
+                            <div className="relative">
+                              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-500">
+                                <Key size={14} />
+                              </span>
+                              <input 
+                                type="password" 
+                                value={settings.whatsapp_api_key || ''} 
+                                onChange={e => setSettings({...settings, whatsapp_api_key: e.target.value})} 
+                                className="w-full bg-dark-950 border border-dark-800 text-white rounded-xl py-3 pl-10 pr-4 focus:border-green-500 outline-none text-sm font-mono" 
+                                placeholder="EAAG..." 
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
